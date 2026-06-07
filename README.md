@@ -19,6 +19,14 @@ The current work is about defining the product honestly before building it:
 
 Public implementation notes will be added as the prototype becomes real. Early product research and planning notes are intentionally kept out of the public repository until they are ready to be maintained as stable public docs.
 
+## Development Rhythm
+
+This repository is expected to move in small, frequent commits.
+
+Early progress may look modest: a clearer README, a tiny macOS window experiment, a safer permission note, a pet profile sketch, or a small UI prototype. That is intentional. Frequent commits make the project easier to follow, easier to review, and more honest about what is changing.
+
+If you are watching the project, expect visible incremental work rather than long silence followed by a large drop.
+
 ## What This Is
 
 `oh-my-pet` is intended to be a personal desktop companion, not just a chat window with a cute skin.
@@ -212,6 +220,8 @@ This is still a design direction, not an implemented stack.
 
 ## How To Help
 
+This is an open collaboration space for people who care about the idea. It is not a job board or a formal hiring process; it is for builders, designers, researchers, and curious users who want to shape a careful desktop companion together.
+
 Useful contributions at this stage:
 
 - macOS transparent floating window experiments.
@@ -220,6 +230,8 @@ Useful contributions at this stage:
 - Voice generation and consent UX feedback.
 - Privacy and permission review.
 - Small UI prototypes for Pet Studio, Pet House, and desktop pet behavior.
+
+Small contributions are welcome. A focused issue, a short experiment, a careful privacy review, or a small working prototype is more useful than a broad rewrite.
 
 Please open an issue before large changes so the direction stays coherent.
 

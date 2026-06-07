@@ -179,6 +179,19 @@ Do not:
 - Do not commit `.DS_Store`, `.superpowers/`, local caches, provider keys, generated pet samples, or voice samples.
 - When implementing, include a small sample pet profile that uses safe placeholder assets created for the repo.
 
+## Commit Rhythm
+
+The repository should feel alive without becoming noisy.
+
+- Prefer small, frequent commits over large mixed commits.
+- Each commit should have a clear purpose and a plain commit message.
+- Commit docs, prototypes, scaffolding, and experiments as separate steps when practical.
+- Keep unrelated changes out of the same commit.
+- Push public progress regularly after a coherent checkpoint.
+- Do not wait for a large release to show movement.
+
+This project should give interested people confidence that it is being cared for steadily.
+
 ## Design Rules
 
 - Build the actual app surface, not a marketing landing page.
@@ -196,6 +209,16 @@ This repository should stay clean as a public starting point.
 - Do not preserve scratch commits, temporary brainstorm artifacts, or abandoned public claims.
 - If history is intentionally rewritten, use a clear initial commit message and push with care.
 - Never commit private notes, secrets, provider keys, voice samples, or generated assets unless they are explicitly safe fixtures.
+
+## Community Posture
+
+Invite contributors as fellow travelers, not as an employment funnel.
+
+- Welcome people who share the product values: emotional care, privacy, local control, macOS craft, and honest AI.
+- Make contribution requests specific and approachable.
+- Prefer respectful, practical feedback over hype.
+- Encourage small experiments and clear issues.
+- Avoid language that sounds like a pitch deck or growth campaign.
 
 ## When Unsure
 
