@@ -92,6 +92,32 @@ Keep the MVP scoped around five systems:
    - Actions adapt to current app context.
    - Show what kind of content will be sent before sending.
 
+## User Customization Channels
+
+A pet is "立体" through five user-controllable channels. Each default pet defines a default for every channel, and users can override any channel independently to make a pet feel more their own.
+
+The five channels:
+
+1. **Voice** — TTS style, pace, pitch, signature catchphrases
+2. **Action** — idle animation, click / drag / hover reactions, triggered motions
+3. **Expression** — face states, mood transitions, micro-reactions
+4. **Humor** — speaking personality: deadpan, self-deprecating, sarcastic, gentle, playful
+5. **Story** — pet lore, relationship with user, recurring motifs
+
+The same channel can be swapped across pets. A Mitu voice can drive a Zorp-shaped body. A Zorp sarcasm style can drive a Mitu-shaped body. This separation is what makes user customization real, not cosmetic.
+
+## MVP Default Pets
+
+The MVP ships with three named default pets. Each one is anchored in a distinct user segment and a real-world IP tradition. The set is intentionally small so the team can verify which pet type drives the highest retention before investing in more.
+
+| Pet | One-line character | Target user | IP tradition |
+|---|---|---|---|
+| **Pako (胖可)** | Ugly-cute jelly, deadpan and self-deprecating | 25-35 internet / designer / programmer | Kuchipatchi (丑萌) + Tokidoki (潮玩) |
+| **Mitu (米兔)** | Fluffy white rabbit, gentle and quiet | 25-35 women / content / office | Molang (无台词陪伴) + Snoopy (内心戏) |
+| **Zorp (卓普)** | Geometric alien, sarcastic and meme-literate | 25-35 programmer / ACG / male-leaning | Tokidoki 骷髅系 + 8-bit antihero |
+
+Other pet candidates (Bean, Pebble) are reserved for post-1.0 expansion. The MVP does not include a marketplace, paid skin economy, or third-party creator tools; the creator economy is a post-1.0 direction.
+
 ## Technical Direction
 
 Prefer a native macOS prototype until there is a strong reason to change.
@@ -182,6 +208,7 @@ Pet images, generated voices, voice samples, actions, profile packs, and other a
 
 ## Engineering Rules
 
+- Cross-platform work must preserve the invariants in `docs/superpowers/specs/platform-invariants-2026-06-07.md`: portable profile package + per-OS native shell; change the shell, not the product promises, schema, or protocol boundaries.
 - Keep changes small and aligned with the current spec.
 - Update docs when product behavior or privacy boundaries change.
 - Prefer explicit data models over ad hoc asset folders.
