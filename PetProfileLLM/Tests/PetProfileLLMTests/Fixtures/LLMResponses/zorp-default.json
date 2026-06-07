@@ -1,0 +1,7 @@
+{
+  "text": "凡人，你又来了。",
+  "expression": "happy",
+  "action": "tentacle-slap",
+  "audio_catchphrase": "凡人，你又来了",
+  "_match_keywords": ["hello凡人", "hi凡人", "凡人你好", "凡人早", "凡人晚上"]
+}

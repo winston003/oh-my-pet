@@ -1,0 +1,7 @@
+{
+  "text": "嘛，又周五了吗。",
+  "expression": "happy",
+  "action": "jelly-bounce",
+  "audio_catchphrase": "嘛，又周五了吗",
+  "_match_keywords": ["周五", "周末", "下班", "摸鱼"]
+}

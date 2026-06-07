@@ -1,0 +1,7 @@
+{
+  "text": "嗯——这样啊。",
+  "expression": "happy",
+  "action": "jelly-bounce",
+  "audio_catchphrase": "没事，慢慢来",
+  "_match_keywords": ["累", "苦", "撑", "加油"]
+}

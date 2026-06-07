@@ -1,0 +1,7 @@
+{
+  "text": "嗯——辛苦了。",
+  "expression": "happy",
+  "action": "fur-shake-look-up",
+  "audio_catchphrase": "辛苦了",
+  "_match_keywords": ["累", "苦", "撑", "加班", "done", "写完", "完成"]
+}
