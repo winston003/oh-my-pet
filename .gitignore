@@ -1,4 +1,12 @@
 .superpowers/
 .private/
 .harness/
+.mavis/
+.worktrees/
 .DS_Store
+
+# Swift Package Manager build artifacts
+.build/
+.swiftpm/
+*.xcodeproj/
+DerivedData/
