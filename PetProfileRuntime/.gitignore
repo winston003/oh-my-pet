@@ -1,0 +1,21 @@
+# Build artifacts
+.build/
+.swiftpm/
+*.xcodeproj/
+DerivedData/
+
+# Generated placeholder PNGs from manual `swift run PetProfileRuntimeApp ...`
+# against source-tree fixtures. Tests already copy to /tmp via copyPakoFixtureToTmp.
+**/assets/visual/
+**/assets/expression/
+**/assets/voice/
+**/assets/audio/
+
+# OS noise
+.DS_Store
+
+# Editor noise
+*.swp
+*~
+.vscode/
+.idea/

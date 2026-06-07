@@ -1,0 +1,9 @@
+# Generated placeholder PNGs by PetProfileLoader (do NOT commit).
+# Real art assets should go through pet-asset pipeline, not be committed here.
+assets/
+*.png
+*.apng
+*.gif
+*.mp4
+*.wav
+*.lottie
