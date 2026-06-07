@@ -1,0 +1,53 @@
+{
+  "version": "0.1.0",
+  "id": "pet_mitu_v01",
+  "name": "Mitu",
+  "identity": {
+    "speciesPrompt": "fluffy white rabbit, gentle and quiet",
+    "personality": ["gentle", "quiet", "soft"],
+    "tone": "warm-gentle"
+  },
+  "visualProfile": {
+    "runtime": "static-image",
+    "supportedRuntimes": ["static-image", "sprite"],
+    "states": {
+      "idle": "assets/visual/states/idle.png",
+      "focus": "assets/visual/states/focus.png",
+      "happy": "assets/visual/states/happy.png",
+      "tired": "assets/visual/states/tired.png",
+      "celebrate": "assets/visual/states/celebrate.png"
+    },
+    "generation": {
+      "provider": "user-configured",
+      "model": "user-configured",
+      "prompt": "fluffy white rabbit, gentle and quiet",
+      "negativePrompt": "scary, sharp",
+      "seed": "0",
+      "referenceImages": [],
+      "referenceStrength": 0.6,
+      "size": "1024x1024"
+    }
+  },
+  "voiceProfile": {
+    "mode": "generated",
+    "provider": "user-configured",
+    "model": "user-configured",
+    "voiceId": "bright-female-soft",
+    "stylePrompt": "warm-gentle",
+    "sampleSource": "assets/voice/samples/mitu-sample.wav",
+    "consentConfirmed": true
+  },
+  "behaviorMap": {
+    "default": "idle",
+    "focusStarted": "focus",
+    "focusCompleted": "celebrate",
+    "longWorkSession": "tired",
+    "taskCompleted": "happy"
+  },
+  "house": {
+    "background": "assets/house/cloud-room.png",
+    "stickers": [],
+    "objects": [],
+    "memories": []
+  }
+}

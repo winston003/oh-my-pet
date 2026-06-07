@@ -1,0 +1,59 @@
+{
+  "version": "0.1.0",
+  "id": "pet_pako_v01",
+  "name": "Pako",
+  "identity": {
+    "speciesPrompt": "ugly-cute jelly, deadpan and self-deprecating",
+    "personality": ["jelly", "deadpan", "lazy"],
+    "tone": "drawl-deadpan"
+  },
+  "visualProfile": {
+    "runtime": "static-image",
+    "supportedRuntimes": ["static-image", "sprite", "video"],
+    "states": {
+      "idle": "assets/visual/states/idle.png",
+      "focus": "assets/visual/states/focus.png",
+      "happy": "assets/visual/states/happy.png",
+      "tired": "assets/visual/states/tired.png",
+      "celebrate": "assets/visual/states/celebrate.png"
+    },
+    "generation": {
+      "provider": "user-configured",
+      "model": "user-configured",
+      "prompt": "ugly-cute jelly, deadpan and self-deprecating",
+      "negativePrompt": "realistic, scary",
+      "seed": "0",
+      "referenceImages": [],
+      "referenceStrength": 0.65,
+      "size": "1024x1024"
+    }
+  },
+  "voiceProfile": {
+    "mode": "generated",
+    "provider": "user-configured",
+    "model": "user-configured",
+    "voiceId": "low-male-drawl",
+    "stylePrompt": "drawl-deadpan",
+    "sampleSource": "assets/voice/samples/pako-sample.wav",
+    "consentConfirmed": true
+  },
+  "behaviorMap": {
+    "default": "idle",
+    "focusStarted": "focus",
+    "focusCompleted": "celebrate",
+    "longWorkSession": "tired",
+    "taskCompleted": "happy"
+  },
+  "house": {
+    "background": "assets/house/office-desk.png",
+    "stickers": [
+      { "id": "stk_001", "kind": "sticker", "assetPath": "assets/house/stickers/coffee-mug.png", "title": "Coffee mug", "createdAt": "2026-06-01T10:00:00Z" }
+    ],
+    "objects": [
+      { "id": "obj_001", "kind": "object", "assetPath": "assets/house/objects/keyboard.png", "title": "Mechanical keyboard", "createdAt": "2026-06-02T10:00:00Z" }
+    ],
+    "memories": [
+      { "id": "mem_001", "kind": "memory", "assetPath": "assets/house/memories/first-focus.png", "title": "First focus session", "createdAt": "2026-06-03T10:00:00Z" }
+    ]
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "version": "0.1.0",
+  "id": "pet_zorp_v01",
+  "name": "Zorp",
+  "identity": {
+    "speciesPrompt": "geometric alien, sarcastic and meme-literate",
+    "personality": ["sarcastic", "meme-literate", "alien"],
+    "tone": "cold-sarcastic"
+  },
+  "visualProfile": {
+    "runtime": "sprite",
+    "supportedRuntimes": ["static-image", "sprite", "video"],
+    "states": {
+      "idle": "assets/visual/states/idle.png",
+      "focus": "assets/visual/states/focus.png",
+      "happy": "assets/visual/states/happy.png",
+      "tired": "assets/visual/states/tired.png",
+      "celebrate": "assets/visual/states/celebrate.png"
+    },
+    "generation": {
+      "provider": "user-configured",
+      "model": "user-configured",
+      "prompt": "geometric alien, sarcastic and meme-literate",
+      "negativePrompt": "cute, warm",
+      "seed": "0",
+      "referenceImages": [],
+      "referenceStrength": 0.7,
+      "size": "1024x1024"
+    }
+  },
+  "voiceProfile": {
+    "mode": "generated",
+    "provider": "user-configured",
+    "model": "user-configured",
+    "voiceId": "electronic-haughty",
+    "stylePrompt": "cold-sarcastic",
+    "sampleSource": "assets/voice/samples/zorp-sample.wav",
+    "consentConfirmed": true
+  },
+  "behaviorMap": {
+    "default": "idle",
+    "focusStarted": "focus",
+    "focusCompleted": "celebrate",
+    "longWorkSession": "tired",
+    "taskCompleted": "happy"
+  },
+  "house": {
+    "background": "assets/house/digital-void.png",
+    "stickers": [],
+    "objects": [],
+    "memories": []
+  }
+}
