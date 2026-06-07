@@ -3,6 +3,7 @@
 .harness/
 .mavis/
 .worktrees/
+.opencode/
 .DS_Store
 
 # Swift Package Manager build artifacts

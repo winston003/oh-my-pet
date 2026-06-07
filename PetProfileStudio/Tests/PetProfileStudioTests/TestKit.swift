@@ -2,8 +2,12 @@
 // 极简 test runner（跟 PetProfileKit/Tests/PetProfileTests/TestKit.swift 一致）
 // 各 test target 独立，不共享 TestKit。
 //
+// P2-J 增加：makeTempPetStore() —— 给 PetStore 一个独立 tmp dir，
+// 测试结束后自动 cleanup。production 路径仍走 PetStore.shared。
+//
 
 import Foundation
+@testable import PetProfileStudio
 
 public struct TestFailure: Error, CustomStringConvertible {
     public let name: String
@@ -14,8 +18,14 @@ public struct TestFailure: Error, CustomStringConvertible {
 public final class Tests {
     public static let shared = Tests()
     public typealias TestFn = (Tests) throws -> Void
+    public typealias AsyncTestFn = (Tests) async throws -> Void
 
-    private var tests: [(name: String, fn: TestFn)] = []
+    private enum AnyTest {
+        case sync(TestFn)
+        case async(AsyncTestFn)
+    }
+
+    private var tests: [(name: String, fn: AnyTest)] = []
     public let suiteName: String
 
     public init(suiteName: String = "PetProfileStudio") {
@@ -23,7 +33,11 @@ public final class Tests {
     }
 
     public func add(_ name: String, _ fn: @escaping TestFn) {
-        tests.append((name, fn))
+        tests.append((name, .sync(fn)))
+    }
+
+    public func add(_ name: String, _ fn: @escaping AsyncTestFn) {
+        tests.append((name, .async(fn)))
     }
 
     @discardableResult
@@ -31,9 +45,27 @@ public final class Tests {
         var passed = 0
         var failed = 0
         print("=== \(suiteName) ===")
-        for (name, fn) in tests {
+        for (name, test) in tests {
             do {
-                try fn(self)
+                switch test {
+                case .sync(let fn):
+                    try fn(self)
+                case .async(let fn):
+                    let semaphore = DispatchSemaphore(value: 0)
+                    var caughtError: Error?
+                    Task {
+                        do {
+                            try await fn(self)
+                        } catch {
+                            caughtError = error
+                        }
+                        semaphore.signal()
+                    }
+                    semaphore.wait()
+                    if let err = caughtError {
+                        throw err
+                    }
+                }
                 print("  [PASS] \(name)")
                 passed += 1
             } catch {
@@ -127,4 +159,36 @@ public func XCTUnwrap<T>(_ v: @autoclosure () -> T?, _ message: String = "", fil
         throw TestFailure(name: "\(file):\(line)", message: "XCTUnwrap failed. \(message)")
     }
     return x
+}
+
+// MARK: - PetStore 临时目录 helper（P2-J 引入）
+
+/// 创建一个独立的 tmp PetStore root，避开真实 ~/Library/Application Support。
+/// 返回 (store, tmpRootURL)，test 末尾用 cleanupTempPetStore() 删除 tmpRoot。
+///
+/// 使用模式：
+/// ```
+/// let (store, tmp) = try makeTempPetStore()
+/// defer { cleanupTempPetStore(tmp) }
+/// ```
+///
+/// 重要：必须显式传 `UploadImageProvider(store: store)`，否则走 default `.shared` 会污染用户 Application Support。
+public func makeTempPetStore() throws -> (store: PetStore, tmpRoot: URL) {
+    let tmp = FileManager.default.temporaryDirectory
+        .appendingPathComponent("oh-my-pet-test-\(UUID().uuidString.prefix(12))", isDirectory: true)
+    try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    let storeRoot = tmp.appendingPathComponent("store-root", isDirectory: true)
+    try FileManager.default.createDirectory(at: storeRoot, withIntermediateDirectories: true)
+    return (PetStore(root: storeRoot), tmp)
+}
+
+/// 清理 makeTempPetStore() 产生的 tmp dir。
+/// 用 FileManager.removeItem —— best effort，cleanup 失败不抛错。
+public func cleanupTempPetStore(_ tmpRoot: URL) {
+    try? FileManager.default.removeItem(at: tmpRoot)
+}
+
+/// 当前用户真实 ~/Library/Application Support/oh-my-pet/pets/ 路径（用于隔离断言）
+public func realAppSupportPetsPath() -> URL {
+    return PetStore.defaultRoot()
 }

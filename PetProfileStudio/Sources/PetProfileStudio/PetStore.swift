@@ -242,6 +242,51 @@ public final class PetStore {
         _ = try loadAll()
     }
 
+    // MARK: - Visual asset 更新（P2-E2 扩展）
+
+    /// 更新某个 pet 的某个 state 视觉资产。
+    /// 行为：
+    ///   - 写入 `{petRoot}/assets/visual/states/{state}.png`
+    ///   - **不动** manifest 顶层（spec §2.5 不变量：House 写盘只动 assets/）
+    ///   - 不需要 manifest 引用更新（visual.states.{state} 已经是该路径，写文件本身
+    ///     就是覆盖 — 下次 load 看到的就是新文件）
+    /// - Throws: pet 不存在 / 写盘失败
+    public func updateVisual(petID: String, state: VisualState, sourceURL: URL) throws {
+        let petDir = petDirectory(for: petID)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: petDir.path) else {
+            throw PetStoreError.notFound(id: petID)
+        }
+        // source 文件存在性由调用方（UploadImageProvider）保证；
+        // 这里只关心落盘。
+        let statesDir = petDir
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("visual", isDirectory: true)
+            .appendingPathComponent("states", isDirectory: true)
+        do {
+            try fm.createDirectory(at: statesDir, withIntermediateDirectories: true)
+        } catch {
+            throw PetStoreError.copyFailed(
+                from: sourceURL.path,
+                to: statesDir.path,
+                reason: "create states dir: \(error.localizedDescription)"
+            )
+        }
+        let dstURL = statesDir.appendingPathComponent("\(state.rawValue).png")
+        do {
+            if fm.fileExists(atPath: dstURL.path) {
+                try? fm.removeItem(at: dstURL)
+            }
+            try fm.copyItem(at: sourceURL, to: dstURL)
+        } catch {
+            throw PetStoreError.copyFailed(
+                from: sourceURL.path,
+                to: dstURL.path,
+                reason: "copy state visual: \(error.localizedDescription)"
+            )
+        }
+    }
+
     /// 删除 pet 目录（不可逆）
     public func delete(id: String) throws {
         let dir = petDirectory(for: id)

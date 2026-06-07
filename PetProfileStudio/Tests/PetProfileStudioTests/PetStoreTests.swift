@@ -590,6 +590,85 @@ func registerPetStoreTests(_ tests: Tests) {
             )
         }
     }
+
+    // MARK: - P2-E2: updateVisual（视觉资产更新）
+
+    /// 同一 state 二次上传 → 覆盖（落盘路径不变，文件被替换）
+    tests.add("Store.testUpdateVisualOverwritesStateFile") { _ in
+        let (store, dir) = try makeTempStore()
+        do {
+            let src = try makeFixtureCopy("pako-v1.0.0", into: dir)
+            let loaded = try PetProfileLoader().loadProfile(from: src.appendingPathComponent("manifest.json"))
+            try store.create(profile: loaded)
+        }
+
+        // 写 2 个不同内容的 PNG，第二次覆盖
+        let v1 = Data("first-version".utf8)
+        let v2 = Data("second-version-overwrites".utf8)
+        let tmp = dir.appendingPathComponent("upload-src", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let src1 = tmp.appendingPathComponent("v1.png")
+        let src2 = tmp.appendingPathComponent("v2.png")
+        try v1.write(to: src1)
+        try v2.write(to: src2)
+
+        let statesDir = store.petDirectory(for: "pet_pako_v10")
+            .appendingPathComponent("assets/visual/states", isDirectory: true)
+        let expectedPath = statesDir.appendingPathComponent("idle.png")
+
+        // 第一次
+        try store.updateVisual(petID: "pet_pako_v10", state: .idle, sourceURL: src1)
+        try XCTAssertTrue(FileManager.default.fileExists(atPath: expectedPath.path))
+        let read1 = try Data(contentsOf: expectedPath)
+        try XCTAssertEqual(read1, v1, "first upload should write v1 contents")
+
+        // 第二次（同 state）— 覆盖
+        try store.updateVisual(petID: "pet_pako_v10", state: .idle, sourceURL: src2)
+        try XCTAssertTrue(FileManager.default.fileExists(atPath: expectedPath.path))
+        let read2 = try Data(contentsOf: expectedPath)
+        try XCTAssertEqual(read2, v2, "second upload should overwrite with v2 contents")
+    }
+
+    /// 改一个 state 不影响其他 4 个
+    tests.add("Store.testUpdateVisualPreservesOtherStateFiles") { _ in
+        let (store, dir) = try makeTempStore()
+        do {
+            let src = try makeFixtureCopy("pako-v1.0.0", into: dir)
+            let loaded = try PetProfileLoader().loadProfile(from: src.appendingPathComponent("manifest.json"))
+            try store.create(profile: loaded)
+        }
+
+        // 5 个 state 的"原始内容"（fixture 已经有图，但 updateVisual 应该**保留**其他 4 个）
+        let statesDir = store.petDirectory(for: "pet_pako_v10")
+            .appendingPathComponent("assets/visual/states", isDirectory: true)
+        // 记下原 happy.png 的内容
+        let happyPath = statesDir.appendingPathComponent("happy.png")
+        let focusPath = statesDir.appendingPathComponent("focus.png")
+        let tiredPath = statesDir.appendingPathComponent("tired.png")
+        let celebratePath = statesDir.appendingPathComponent("celebrate.png")
+        let idlePath = statesDir.appendingPathComponent("idle.png")
+        let originalHappy = try Data(contentsOf: happyPath)
+
+        // 上传一个新 idle.png
+        let tmp = dir.appendingPathComponent("upload-src", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let newIdle = tmp.appendingPathComponent("new-idle.png")
+        try Data("new-idle-content".utf8).write(to: newIdle)
+
+        try store.updateVisual(petID: "pet_pako_v10", state: .idle, sourceURL: newIdle)
+
+        // idle 改了
+        let afterIdle = try Data(contentsOf: idlePath)
+        try XCTAssertEqual(afterIdle, Data("new-idle-content".utf8))
+
+        // 其他 4 个 state 文件**没**被改（用 file size 比较 + 内容比较 happy）
+        let afterHappy = try Data(contentsOf: happyPath)
+        try XCTAssertEqual(afterHappy, originalHappy, "happy.png must be unchanged")
+        // 存在性 + 尺寸检查
+        try XCTAssertTrue(FileManager.default.fileExists(atPath: focusPath.path))
+        try XCTAssertTrue(FileManager.default.fileExists(atPath: tiredPath.path))
+        try XCTAssertTrue(FileManager.default.fileExists(atPath: celebratePath.path))
+    }
 }
 
 // MARK: - minimal profile helper

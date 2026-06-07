@@ -4,7 +4,7 @@
 // UI（来自任务描述）：
 //   - 顶栏：返回 + pet 名字 + 性格 tags + "显示桌面" + Edit / Delete 按钮（PetEditDeleteButtons）
 //   - 主体：tab 切换
-//     - Tab 1 "主页"：状态图 gallery（5 缩略图）+ voice 摘要 + 当前状态
+//     - Tab 1 "主页"：视觉上传（5 state 编辑） + 状态图 gallery + voice 摘要 + 当前状态
 //     - Tab 2 "记忆"：focus/task 完成的记忆列表
 //     - Tab 3 "贴纸"：stickers + room objects grid
 //     - Tab 4 "历史"：generation history 时间线
@@ -19,6 +19,12 @@
 //   - generation history：PetStore.loadGenerationHistory(petID:)
 //   - 写盘（创建 memory / sticker / generation entry）属 P2-F；本屏不写
 //
+// 视觉上传（P2-E2 扩展）：
+//   - Home tab 顶部"编辑视觉"区域：5 state 占位 + 上传按钮 + 完成
+//   - 用户点 "上传" → NSOpenPanel 选 PNG → UploadImageProvider 校验 + 落盘
+//   - 默认走 upload（无 API key 要求）；AI provider（OpenAI DALL-E / Stable Diffusion）
+//     是 stub，列在 provider 列表里但需要配 Keychain key 才能用（暂未做 key UI）
+//
 // Export：
 //   - PetStore.export(profileID:to:) → .omppet 文件
 //   - SwiftUI 弹 NSSavePanel（macOS 原生）让用户选保存位置
@@ -26,10 +32,12 @@
 // 不做：
 //   - 不实现 add memory / sticker UI（属 P2-F）
 //   - 不实现 PetPanel 启动（PetStore 之外；可选在底部"显示桌面"按钮触发）
+//   - 不实现 AI provider key 配置 UI（spec §3.1 留接口；UI 走 v2）
 //
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import PetProfile
 import PetProfileRuntime
 import PetProfileOnboarding
@@ -49,6 +57,19 @@ public final class HouseViewModel: ObservableObject {
     @Published public var exportURL: URL?
     @Published public var wasDeleted: Bool = false
 
+    // MARK: P2-E2 visual upload state
+
+    /// 5 个 state → 选定的本地 file URL（nil = 还没选）
+    @Published public var pendingVisualURLs: [VisualState: URL] = [:]
+    /// 单 state 校验错误（用户每次选完一个 PNG 后跑一次）
+    @Published public var perStateErrors: [VisualState: String] = [:]
+    /// 提交（点"完成"）时的全局错误
+    @Published public var uploadError: String?
+    /// 是否在上传中（不阻塞 UI；只是为了 disable 完成按钮）
+    @Published public var isUploading: Bool = false
+    /// 上传成功 — 触发 HomeTabView 刷新缩略图
+    @Published public var lastUploadAt: Date?
+
     public let store: PetStore
 
     public init(petID: String, store: PetStore = .shared) {
@@ -67,6 +88,113 @@ public final class HouseViewModel: ObservableObject {
             error = nil
         } catch {
             self.error = "加载 Pet House 失败：\(error.localizedDescription)"
+        }
+    }
+
+    // MARK: P2-E2 visual upload actions
+
+    /// 用户点 "上传" 按钮 — 弹 NSOpenPanel 选 PNG。
+    /// - Returns: 选定的 URL（用户取消 = nil）
+    public func pickVisualFile(for state: VisualState) -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = "选择 \(state.rawValue) 状态图（PNG，建议含 alpha）"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        // 用 UTType 过滤（macOS 12+ 推荐；allowedFileTypes 已 deprecated）
+        if #available(macOS 12.0, *) {
+            if let pngType = UTType(filenameExtension: "png") {
+                panel.allowedContentTypes = [pngType]
+            }
+        }
+        let response = panel.runModal()
+        guard response == .OK, let url = panel.url else {
+            return nil
+        }
+        return url
+    }
+
+    /// 用户选定文件后：暂存到 pendingVisualURLs，跑单 state 预校验
+    /// （不落盘，只是给 UI 即时反馈 alpha / size 是否合规）
+    public func setPendingVisual(_ url: URL?, for state: VisualState) {
+        if let url = url {
+            pendingVisualURLs[state] = url
+            perStateErrors[state] = nil
+        } else {
+            pendingVisualURLs.removeValue(forKey: state)
+            perStateErrors.removeValue(forKey: state)
+        }
+    }
+
+    /// 校验单个文件（不落盘）— 给 UI 实时反馈
+    public func validatePending(_ state: VisualState) {
+        guard let url = pendingVisualURLs[state] else {
+            perStateErrors[state] = nil
+            return
+        }
+        let provider = UploadImageProvider()
+        var firstSize: CGSize? = nil
+        Task { @MainActor in
+            do {
+                // 单张校验 — count check 不适用（5 张图专用），只跑单图
+                try await provider.validate(url: url, state: state, firstSize: &firstSize)
+                self.perStateErrors[state] = nil
+            } catch let v as ImageValidationError {
+                let stateName = v.state?.rawValue ?? "?"
+                self.perStateErrors[state] = "[\(stateName) · \(v.check.rawValue)] \(v.message)"
+            } catch {
+                self.perStateErrors[state] = error.localizedDescription
+            }
+        }
+    }
+
+    /// 是否所有 5 个 state 都已选 + 无 per-state 错误
+    public var canCompleteVisualUpload: Bool {
+        guard pendingVisualURLs.count == 5 else { return false }
+        for s in VisualState.allCases {
+            if pendingVisualURLs[s] == nil { return false }
+            if perStateErrors[s] != nil { return false }
+        }
+        return !isUploading
+    }
+
+    /// 调 UploadImageProvider.generate → 校验 5 张 + 落盘 → reload
+    public func runVisualUpload() {
+        uploadError = nil
+        isUploading = true
+        let provider = UploadImageProvider()
+        let states = VisualState.allCases
+        let urls: [URL] = states.compactMap { pendingVisualURLs[$0] }
+        let request = ImageGenerationRequest(
+            petID: petID,
+            states: states,
+            prompt: nil,
+            referenceImageURLs: [],
+            uploadURLs: urls
+        )
+        Task {
+            do {
+                _ = try await provider.generate(request: request)
+                await MainActor.run {
+                    self.pendingVisualURLs.removeAll()
+                    self.perStateErrors.removeAll()
+                    self.lastUploadAt = Date()
+                    self.isUploading = false
+                    self.reload()
+                }
+            } catch let v as ImageValidationError {
+                let stateName = v.state?.rawValue ?? "?"
+                let msg = "[\(stateName) · \(v.check.rawValue)] \(v.message)"
+                await MainActor.run {
+                    self.uploadError = msg
+                    self.isUploading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.uploadError = "上传失败：\(error.localizedDescription)"
+                    self.isUploading = false
+                }
+            }
         }
     }
 
@@ -294,6 +422,9 @@ struct HomeTabView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                // P2-E2：视觉上传编辑区（Home tab 顶部）
+                VisualsEditSection(viewModel: viewModel)
+                Divider()
                 Text("状态图 gallery")
                     .font(.headline)
                 stateGallery
@@ -560,6 +691,121 @@ struct HistoryTabView: View {
         case .state: return "face.smiling"
         case .voiceStyle: return "speaker.wave.2"
         case .voiceClone: return "waveform"
+        }
+    }
+}
+
+// MARK: - VisualsEditSection（P2-E2 视觉上传编辑区）
+
+/// Home tab 顶部的"编辑视觉"区域：
+///   - 5 个 state 的上传槽（点击 → NSOpenPanel）
+///   - 每个 state 显示当前已选文件 + 缩略图（若有）
+///   - 5 张都选完后，"完成" 按钮亮起
+///   - 失败：inline 红色文字（哪个 state 失败 + 原因），不弹 alert
+struct VisualsEditSection: View {
+    @ObservedObject var viewModel: HouseViewModel
+    private let states: [VisualState] = VisualState.allCases
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("编辑视觉")
+                    .font(.headline)
+                Spacer()
+                if viewModel.isUploading {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .accessibilityIdentifier("visuals-uploading-indicator")
+                } else if viewModel.canCompleteVisualUpload {
+                    Text("已就绪 ✓")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                        .accessibilityIdentifier("visuals-ready-label")
+                }
+            }
+
+            // 5 个 state 上传槽（横向 grid）
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(states, id: \.self) { state in
+                    VisualStateSlot(viewModel: viewModel, state: state)
+                }
+            }
+
+            // 全局错误（提交阶段失败）
+            if let err = viewModel.uploadError {
+                Text(err)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .accessibilityIdentifier("visuals-upload-error")
+            }
+
+            // 操作行：完成 + 提示
+            HStack {
+                Text("5 张 PNG（建议 256×256，含 alpha）")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button {
+                    viewModel.runVisualUpload()
+                } label: {
+                    Label("完成", systemImage: "checkmark.circle")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!viewModel.canCompleteVisualUpload)
+                .accessibilityIdentifier("visuals-complete-button")
+            }
+        }
+        .padding(.bottom, 8)
+    }
+}
+
+/// 单个 state 的上传槽（缩略图 + 上传按钮 + inline 错误）
+struct VisualStateSlot: View {
+    @ObservedObject var viewModel: HouseViewModel
+    let state: VisualState
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.15))
+                    .frame(width: 80, height: 80)
+                if let url = viewModel.pendingVisualURLs[state],
+                   let nsImage = NSImage(contentsOf: url) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 80, height: 80)
+                } else {
+                    Text(state.rawValue.prefix(1).uppercased())
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            Text(state.rawValue)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Button {
+                if let url = viewModel.pickVisualFile(for: state) {
+                    viewModel.setPendingVisual(url, for: state)
+                    viewModel.validatePending(state)
+                }
+            } label: {
+                Text(viewModel.pendingVisualURLs[state] == nil ? "上传" : "替换")
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("visuals-upload-button-\(state.rawValue)")
+            // per-state 错误
+            if let err = viewModel.perStateErrors[state] {
+                Text(err)
+                    .font(.caption2)
+                    .foregroundColor(.red)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 96)
+                    .accessibilityIdentifier("visuals-state-error-\(state.rawValue)")
+            }
         }
     }
 }

@@ -30,7 +30,12 @@ public struct PetProfileStudioApp: App {
     @StateObject private var studioVM = StudioViewModel()
     @State private var selectedPet: PetSummary?
 
-    public init() {}
+    public init() {
+        // 启动期注册 ImageProvider：upload + 2 个 AI stub
+        // 注：ImageProviderRegistry.shared 已默认注册；这里显式调一次以保证
+        // test target / 注入场景下也走完注册链。
+        _ = ImageProviderRegistry.shared
+    }
 
     public var body: some Scene {
         WindowGroup("oh-my-pet Studio") {
