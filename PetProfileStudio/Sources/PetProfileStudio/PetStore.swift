@@ -168,8 +168,11 @@ public final class PetStore {
             )
         }
 
+        // 计算 manifest 引用的 asset 相对路径集合（用于过滤 assets/）
+        let referenced = manifestReferencedAssets(in: profile.manifest)
+
         do {
-            // 1. 复制 assets/ 等非 manifest 子目录
+            // 1. 遍历 source profileRoot，按子目录分类处理
             let entries = try fm.contentsOfDirectory(
                 at: profile.profileRoot,
                 includingPropertiesForKeys: [.isDirectoryKey],
@@ -180,16 +183,29 @@ public final class PetStore {
                 if name.hasSuffix(".json") {
                     continue  // manifest 自己写，不从源 copy
                 }
-                if (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                    let dstSubdir = dest.appendingPathComponent(name, isDirectory: true)
-                    if fm.fileExists(atPath: dstSubdir.path) {
-                        try? fm.removeItem(at: dstSubdir)
-                    }
+                guard (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                    continue  // 非目录（隐藏文件等）跳过
+                }
+                let dstSubdir = dest.appendingPathComponent(name, isDirectory: true)
+                if fm.fileExists(atPath: dstSubdir.path) {
+                    try? fm.removeItem(at: dstSubdir)
+                }
+                // 2. assets/ 子目录：只复制 manifest 引用的文件
+                //    其他子目录（persona / house 等）：整目录复制（house 不在 v1 manifest，
+                //    但 source 可能有；pet-product/pet-asset 后续扩字段时再用）
+                if name == "assets" {
+                    try copyAssetsFiltered(
+                        from: entry,
+                        to: dstSubdir,
+                        referenced: referenced,
+                        fm: fm
+                    )
+                } else {
                     try fm.copyItem(at: entry, to: dstSubdir)
                 }
             }
 
-            // 2. 写 manifest.json（用 in-memory profile.manifest，保留 draft 编辑）
+            // 3. 写 manifest.json（用 in-memory profile.manifest，保留 draft 编辑）
             let data = try ProfileIO.encodeV1(profile.manifest)
             try atomicWrite(data: data, to: destManifest)
         } catch {
@@ -244,9 +260,15 @@ public final class PetStore {
 
     // MARK: - Export
 
-    /// 把整个 pet 目录打包成 .omppet（zip 格式），输出到目标 URL
+    /// 把 pet 目录打包成 .omppet（zip 格式），输出到目标 URL。
+    ///
+    /// **Awareness flag 修复（P2-H）**：原版用 `zip -r <dir>` 把整个 pet 目录打进去，
+    /// 包含未引用的 assets（其它 pet 的资产可能共享 source dir 时被一起带进来）。
+    /// 本方法改为显式 file list：只 zip manifest.json + 已知顶层数据文件 +
+    /// manifest 引用的 assets。
+    ///
     /// - 用 /usr/bin/zip（macOS 自带）— 不引入第三方 zip 库
-    /// - zip 内保留目录结构（相对 pet 目录）
+    /// - zip 内保留目录结构（相对 pet 目录；-r 让 asset 子目录结构保留）
     /// - Throws: 导出失败 / pet 不存在 / /usr/bin/zip 不存在
     public func export(profileID: String, to outputURL: URL) throws {
         let dir = petDirectory(for: profileID)
@@ -272,15 +294,48 @@ public final class PetStore {
             try? fm.removeItem(at: outputURL)
         }
 
-        // /usr/bin/zip -r <output> <dir-name>
-        //   -r: recursive
-        //   cd 到 parent 后把 dir-name 整体打进去，zip 内根 = <dir-name>/
+        // 1. 读 manifest 拿到 asset 引用集合
+        let manifestPath = manifestURL(for: profileID)
+        let manifest = try ProfileIO.decodeV1(from: manifestPath)
+        let referenced = manifestReferencedAssets(in: manifest)
+
+        // 2. 构造要打入 zip 的相对路径列表
+        var itemsToZip: [String] = ["manifest.json"]
+
+        // 顶层数据文件（如有就加）—— 这些是 Pet House 的辅助 JSON
+        for topName in ["memories.json", "stickers.json", "generation-history.json", "persona.json"] {
+            if fm.fileExists(atPath: dir.appendingPathComponent(topName).path) {
+                itemsToZip.append(topName)
+            }
+        }
+
+        // house/ 子目录（如有就整个打）—— v1 manifest 不含 house 字段，
+        // 但 P2-F 之后 house/ 可能由 runtime 写入；保留以兼容
+        let houseDir = dir.appendingPathComponent("house", isDirectory: true)
+        if fm.fileExists(atPath: houseDir.path) {
+            // 全部进 zip —— house/ 内容由 Pet House 模块管理，资产过滤不是本 plan 范围
+            if let entries = try? fm.subpathsOfDirectory(atPath: houseDir.path) {
+                for rel in entries {
+                    itemsToZip.append("house/\(rel)")
+                }
+            }
+        }
+
+        // 3. manifest 引用的 assets（按相对路径去重加入）
+        for assetRel in referenced {
+            // 验证 source 真有这个文件（manifest 引用的路径可能在 source 里缺失；
+            // 这种情况下 zip 仍然会把路径写进去但文件是 broken —— 跟旧版行为一致）
+            let absURL = URL(fileURLWithPath: assetRel, relativeTo: dir).standardizedFileURL
+            if fm.fileExists(atPath: absURL.path) {
+                itemsToZip.append(assetRel)
+            }
+        }
+
+        // 4. zip -r <output> <items...>（items 全部相对 dir 的相对路径）
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-        process.arguments = ["-r", "-X", outputURL.path, dir.lastPathComponent]
-
-        // 让 zip 读 dir 的绝对路径
-        process.currentDirectoryURL = dir.deletingLastPathComponent()
+        process.arguments = ["-r", "-X", outputURL.path] + itemsToZip
+        process.currentDirectoryURL = dir
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -328,6 +383,137 @@ public final class PetStore {
     }
 
     // MARK: - 写盘辅助
+
+    /// 计算 manifest 引用的所有 asset 相对路径集合（用于过滤 assets/ 目录）。
+    /// **Awareness flag 修复（P2-H）**：防止 export / create 把未引用的 assets 带进
+    /// 当前 pet 的存储 / .omppet 包。
+    ///
+    /// 覆盖的引用源（v1 schema）：
+    ///   - `visual.states.{idle,focus,happy,tired,celebrate}`（5 个 string 路径）
+    ///   - `expression.states.{idle,focus,happy,tired,celebrate}.asset_path`（5 个）
+    ///   - `expression.extended_emotions[].asset_path`（N 个）
+    ///   - `action.idle.asset_path`（optional）
+    ///   - `action.reactions[].asset_path`（optional 数组）
+    ///   - `audio.voice_clone_consent.sample_path`（optional）
+    ///
+    /// 返回值已 normalize：去掉前导 `./` 和 `/`，统一用 `/` 分隔。
+    func manifestReferencedAssets(in manifest: PetProfileV1) -> Set<String> {
+        var paths = Set<String>()
+
+        // 1. visual.states（5 个 string）
+        let vs = manifest.visual.states
+        for p in [vs.idle, vs.focus, vs.happy, vs.tired, vs.celebrate] {
+            let n = normalizeAssetPath(p)
+            if !n.isEmpty {
+                paths.insert(n)
+            }
+        }
+
+        // 2. expression.states（5 个 ExpressionFace.assetPath）
+        let es = manifest.expression.states
+        for face in [es.idle, es.focus, es.happy, es.tired, es.celebrate] {
+            paths.insert(normalizeAssetPath(face.assetPath))
+        }
+
+        // 3. expression.extended_emotions（变长）
+        for ext in (manifest.expression.extendedEmotions ?? []) {
+            paths.insert(normalizeAssetPath(ext.assetPath))
+        }
+
+        // 4. action.idle（optional）
+        if let p = manifest.action.idle.assetPath {
+            paths.insert(normalizeAssetPath(p))
+        }
+
+        // 5. action.reactions（optional 数组）
+        for r in manifest.action.reactions {
+            if let p = r.assetPath {
+                paths.insert(normalizeAssetPath(p))
+            }
+        }
+
+        // 6. voice clone sample（optional）
+        if let p = manifest.audio.voiceCloneConsent?.samplePath {
+            paths.insert(normalizeAssetPath(p))
+        }
+
+        return paths
+    }
+
+    /// 规范化 asset 相对路径：去掉前导 `./` 和 `/`，保留 `/` 分隔。
+    /// 防御性 —— validator 已经把 `..` / 绝对路径拒了，但这里再保险一层。
+    private func normalizeAssetPath(_ path: String) -> String {
+        var p = path
+        while p.hasPrefix("./") {
+            p.removeFirst(2)
+        }
+        while p.hasPrefix("/") {
+            p.removeFirst()
+        }
+        return p
+    }
+
+    /// 把 source assets/ 子目录**只**复制 manifest 引用的文件到 dest。
+    /// 未引用的文件**不**复制（节省空间 + 避免 bloat）。
+    /// - `referenced`：manifest 引用的相对路径集合（已 normalize）
+    /// - 递归遍历 source；命中路径的文件 → copy；未命中的 → skip
+    /// - 必要时创建中间子目录
+    func copyAssetsFiltered(
+        from source: URL,
+        to dest: URL,
+        referenced: Set<String>,
+        fm: FileManager
+    ) throws {
+        // 把 referenced 全部归到 dest/ 前缀下；source/ 不在 referenced 集合里
+        // （manifest 引用的都是 "assets/visual/..." 形式，source/ 本身不带 "assets/"）
+        let sourcePath = source.standardizedFileURL.path
+
+        // 把所有 "assets/xxx" → "xxx" 形式（因为递归遍历时 file 在 source 内部）
+        // 实际上 referenced 已是 "assets/visual/..." 形式，遍历时拼相对 source 的路径
+        func relPathFromSource(of fileURL: URL) -> String {
+            let p = fileURL.standardizedFileURL.path
+            let prefix = sourcePath.hasSuffix("/") ? sourcePath : sourcePath + "/"
+            if p.hasPrefix(prefix) {
+                return String(p.dropFirst(prefix.count))
+            }
+            return p
+        }
+
+        func isReferenced(_ fileURL: URL) -> Bool {
+            // 形如 assets/visual/states/idle.png
+            let relFromSource = relPathFromSource(of: fileURL)
+            return referenced.contains("assets/\(relFromSource)")
+        }
+
+        func walk(_ dir: URL) throws {
+            let entries = try fm.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+            for entry in entries {
+                let isDir = (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                if isDir {
+                    try walk(entry)
+                } else {
+                    guard isReferenced(entry) else { continue }
+                    let relFromDest = relPathFromSource(of: entry)
+                    let dstFile = URL(fileURLWithPath: relFromDest, relativeTo: dest).standardizedFileURL
+                    let dstParent = dstFile.deletingLastPathComponent()
+                    if !fm.fileExists(atPath: dstParent.path) {
+                        try fm.createDirectory(at: dstParent, withIntermediateDirectories: true)
+                    }
+                    if fm.fileExists(atPath: dstFile.path) {
+                        try? fm.removeItem(at: dstFile)
+                    }
+                    try fm.copyItem(at: entry, to: dstFile)
+                }
+            }
+        }
+
+        try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+        try walk(source)
+    }
 
     func ensureRootDirectory() throws {
         let fm = FileManager.default

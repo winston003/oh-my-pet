@@ -41,6 +41,23 @@ public struct PetProfileStudioApp: App {
                         onBack: { selectedPet = nil },
                         onShowDesktopPet: {
                             showDesktopPet(id: pet.id)
+                        },
+                        onRequestEdit: {
+                            // HouseView 顶栏 Edit → 把 editor state 推给 StudioViewModel，
+                            // 然后 pop 回 StudioView（这样 PetEditorView 的 sheet 才会出现）
+                            let summary = PetSummary(
+                                id: pet.id,
+                                name: pet.name,
+                                species: pet.species,
+                                createdAt: pet.createdAt
+                            )
+                            studioVM.beginEdit(summary)
+                            selectedPet = nil
+                        },
+                        onAfterDelete: {
+                            // 删除成功后退出 HouseView，让 StudioView 刷新（pet 不在列表里）
+                            selectedPet = nil
+                            studioVM.reload()
                         }
                     )
                 } else {

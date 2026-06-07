@@ -2,7 +2,7 @@
 // HouseView — Pet 主页（顶栏 + 4 tabs + Export 按钮）
 //
 // UI（来自任务描述）：
-//   - 顶栏：pet 名字 + 性格 tags + 编辑 / 删除 按钮
+//   - 顶栏：返回 + pet 名字 + 性格 tags + "显示桌面" + Edit / Delete 按钮（PetEditDeleteButtons）
 //   - 主体：tab 切换
 //     - Tab 1 "主页"：状态图 gallery（5 缩略图）+ voice 摘要 + 当前状态
 //     - Tab 2 "记忆"：focus/task 完成的记忆列表
@@ -47,6 +47,7 @@ public final class HouseViewModel: ObservableObject {
     @Published public var currentState: String = "idle"
     @Published public var error: String?
     @Published public var exportURL: URL?
+    @Published public var wasDeleted: Bool = false
 
     public let store: PetStore
 
@@ -72,6 +73,7 @@ public final class HouseViewModel: ObservableObject {
     public func delete() {
         do {
             try store.delete(id: petID)
+            wasDeleted = true
         } catch {
             self.error = "删除 pet 失败：\(error.localizedDescription)"
         }
@@ -106,6 +108,11 @@ public struct HouseView: View {
     @State private var selectedTab: Tab = .home
     @State public var onBack: () -> Void
     @State public var onShowDesktopPet: (() -> Void)?
+    /// 用户点击 "Edit" 按钮 → 通知父 view（通常是 StudioApp）打开编辑器
+    /// HouseView 自身不持有 editor state —— 由 parent 决定怎么 present（弹 sheet / 跳 view 等）
+    @State public var onRequestEdit: (() -> Void)?
+    /// 用户确认删除后 → 通知父 view 退出 HouseView
+    @State public var onAfterDelete: (() -> Void)?
 
     public enum Tab: String, CaseIterable, Identifiable {
         case home = "主页"
@@ -118,11 +125,15 @@ public struct HouseView: View {
     public init(
         viewModel: HouseViewModel,
         onBack: @escaping () -> Void = {},
-        onShowDesktopPet: (() -> Void)? = nil
+        onShowDesktopPet: (() -> Void)? = nil,
+        onRequestEdit: (() -> Void)? = nil,
+        onAfterDelete: (() -> Void)? = nil
     ) {
         _viewModel = StateObject(wrappedValue: viewModel)
         self.onBack = onBack
         self.onShowDesktopPet = onShowDesktopPet
+        self.onRequestEdit = onRequestEdit
+        self.onAfterDelete = onAfterDelete
     }
 
     public var body: some View {
@@ -139,6 +150,11 @@ public struct HouseView: View {
         .onAppear {
             if viewModel.profile == nil {
                 viewModel.reload()
+            }
+        }
+        .onChange(of: viewModel.wasDeleted) { newValue in
+            if newValue {
+                onAfterDelete?()
             }
         }
         .alert("出错", isPresented: Binding(
@@ -169,6 +185,7 @@ public struct HouseView: View {
                 Image(systemName: "chevron.left")
             }
             .buttonStyle(.borderless)
+            .accessibilityIdentifier("house-back-button")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(viewModel.profile?.manifest.name ?? "加载中…")
@@ -185,6 +202,16 @@ public struct HouseView: View {
             }
             .buttonStyle(.bordered)
             .disabled(onShowDesktopPet == nil)
+            .accessibilityIdentifier("house-show-desktop-button")
+            // 顶栏：edit / delete 按钮（共享 PetCommands 实现 + 二次确认 dialog）
+            // 走 toolbar 风格（文字 + 图标）
+            if let onEdit = onRequestEdit {
+                PetEditDeleteButtons(
+                    onEdit: onEdit,
+                    onDelete: { viewModel.delete() },
+                    style: .toolbar
+                )
+            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 14)

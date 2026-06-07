@@ -384,10 +384,6 @@ public struct StudioView: View {
                     ForEach(viewModel.summaries) { summary in
                         PetCardView(summary: summary) {
                             onSelectPet(summary)
-                        } onEdit: {
-                            viewModel.beginEdit(summary)
-                        } onDelete: {
-                            viewModel.delete(summary)
                         }
                     }
                 }
@@ -413,13 +409,13 @@ public struct StudioView: View {
 
 // MARK: - PetCardView
 
+/// Studio list 屏的单张 pet 卡（缩略图 + 名字 + 性格 tag）。
+/// **不**包含 edit / delete 按钮 —— 那些操作属于 HouseView（产品定位"情感 home"），
+/// 通过 `PetEditDeleteButtons`（PetCommands.swift）统一实现 + 强制二次确认 dialog。
+/// 整个卡是可点击的，点击进入 HouseView。
 struct PetCardView: View {
     let summary: PetSummary
     let onSelect: () -> Void
-    let onEdit: () -> Void
-    let onDelete: () -> Void
-
-    @State private var showDeleteConfirm = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -433,25 +429,9 @@ struct PetCardView: View {
             Text(summary.species)
                 .font(.caption)
                 .foregroundColor(.secondary)
-            // 操作
-            HStack {
-                Spacer()
-                Button {
-                    onEdit()
-                } label: {
-                    Image(systemName: "pencil")
-                }
-                .buttonStyle(.borderless)
-                Button {
-                    showDeleteConfirm = true
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.borderless)
-                .foregroundColor(.red)
-            }
         }
         .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(NSColor.controlBackgroundColor))
@@ -462,12 +442,10 @@ struct PetCardView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
-        .confirmationDialog("删除 \(summary.name)？", isPresented: $showDeleteConfirm) {
-            Button("删除", role: .destructive) { onDelete() }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("该 pet 的所有数据将被永久删除（不可恢复）。")
-        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Pet: \(summary.name), 性格: \(summary.species)")
+        .accessibilityIdentifier("studio-pet-card-\(summary.id)")
+        .help("点击进入 HouseView；edit / delete 在 HouseView 顶栏")
     }
 
     private var thumbnail: some View {
