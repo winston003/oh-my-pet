@@ -15,8 +15,11 @@ The repository should present a clean, professional public starting point:
 
 Primary public context:
 
-- `README.md`: public-facing project overview.
+- `README.md`: English public-facing project overview and primary GitHub entry point.
+- `README.zh-CN.md`: Simplified Chinese public-facing project overview.
 - `AGENTS.md`: project operating guide for future agents and contributors.
+
+Keep the English and Chinese README files aligned. When product direction, privacy boundaries, roadmap, contribution language, or repository contents change in one README, update the other in the same commit unless the owner explicitly asks otherwise.
 
 Private planning context may exist locally under `.private/`. It is not public source material and must not be committed unless the owner explicitly asks to publish a specific file.
 
