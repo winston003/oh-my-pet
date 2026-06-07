@@ -17,6 +17,7 @@ Primary public context:
 
 - `README.md`: English public-facing project overview and primary GitHub entry point.
 - `README.zh-CN.md`: Simplified Chinese public-facing project overview.
+- `LICENSE`: MIT License for repository code and documentation.
 - `AGENTS.md`: project operating guide for future agents and contributors.
 
 Keep the English and Chinese README files aligned. When product direction, privacy boundaries, roadmap, contribution language, or repository contents change in one README, update the other in the same commit unless the owner explicitly asks otherwise.
@@ -172,6 +173,12 @@ Do not:
 - Claim there is a runnable app before there is one.
 - Use hype language that weakens trust.
 - Add unauthorized IP, NFT, or speculative ecosystem promises.
+
+## Licensing Rules
+
+Repository code and documentation are MIT licensed unless a file states otherwise.
+
+Pet images, generated voices, voice samples, actions, profile packs, and other assets may need separate license and consent rules. Do not imply that the MIT License grants reuse rights for user-generated pet assets or voice material.
 
 ## Engineering Rules
 

@@ -4,7 +4,7 @@
 
 ![status](https://img.shields.io/badge/status-pre--alpha-orange)
 ![platform](https://img.shields.io/badge/platform-macOS--first-blue)
-![license](https://img.shields.io/badge/license-undecided-lightgrey)
+![license](https://img.shields.io/badge/license-MIT-green)
 
 Languages: English | [简体中文](README.zh-CN.md)
 
@@ -98,6 +98,7 @@ The roadmap will stay modest until the first runnable prototype exists.
 ```txt
 oh-my-pet/
   AGENTS.md
+  LICENSE
   README.md
   README.zh-CN.md
 ```
@@ -135,9 +136,9 @@ Short-term non-goals:
 
 ## License
 
-The code license is not decided yet.
+The code in this repository is licensed under the [MIT License](LICENSE).
 
-Assets such as pet images, generated voices, actions, and profile packs may need separate license and consent rules. Do not assume this repository grants reuse rights until a license is explicitly added.
+Assets such as pet images, generated voices, voice samples, actions, and profile packs may need separate license and consent rules. The MIT License applies to repository code and documentation unless a file says otherwise.
 
 ## One Sentence
 
