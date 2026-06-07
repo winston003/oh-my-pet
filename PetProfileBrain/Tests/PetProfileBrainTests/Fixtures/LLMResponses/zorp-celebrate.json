@@ -1,0 +1,7 @@
+{
+  "text": "凡人，辛苦了——勉强。",
+  "expression": "celebrate",
+  "action": "spin-rainbow",
+  "audio_catchphrase": "凡人，你又来了",
+  "_match_keywords": ["task_done", "完成任务", "完成task", "all done", "完成了"]
+}

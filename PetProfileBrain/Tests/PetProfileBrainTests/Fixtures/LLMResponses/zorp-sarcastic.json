@@ -1,0 +1,7 @@
+{
+  "text": "凡人，你还在写 bug 啊。",
+  "expression": "tired",
+  "action": "tentacle-slap",
+  "audio_catchphrase": "我比你想得好看",
+  "_match_keywords": ["累", "加班", "摸鱼", "困", "熬"]
+}

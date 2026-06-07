@@ -1,0 +1,7 @@
+{
+  "text": "这 bug 不赖我。",
+  "expression": "happy",
+  "action": "tentacle-slap",
+  "audio_catchphrase": "这 bug 不赖我",
+  "_match_keywords": ["bug", "debug", "error", "代码", "写错", "编译"]
+}

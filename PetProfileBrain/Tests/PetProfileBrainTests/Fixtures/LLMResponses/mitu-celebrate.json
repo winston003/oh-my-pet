@@ -1,0 +1,7 @@
+{
+  "text": "嗯。",
+  "expression": "celebrate",
+  "action": "curl-into-ball",
+  "audio_catchphrase": "辛苦了",
+  "_match_keywords": ["task", "任务", "done", "完"]
+}
