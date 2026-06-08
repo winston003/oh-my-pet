@@ -163,6 +163,20 @@ public func XCTUnwrap<T>(_ v: @autoclosure () -> T?, _ message: String = "", fil
     return x
 }
 
+public func XCTAssertContains(_ haystack: @autoclosure () -> String, _ needle: String, _ message: String = "", file: StaticString = #file, line: UInt = #line) throws {
+    let h = haystack()
+    if !h.contains(needle) {
+        throw TestFailure(name: "\(file):\(line)", message: "XCTAssertContains failed: '\(h.prefix(200))' does not contain '\(needle)'. \(message)")
+    }
+}
+
+public func XCTAssertNotEqual<T: Equatable>(_ a: @autoclosure () -> T, _ b: @autoclosure () -> T, _ message: String = "", file: StaticString = #file, line: UInt = #line) throws {
+    let av = a(); let bv = b()
+    if av == bv {
+        throw TestFailure(name: "\(file):\(line)", message: "XCTAssertNotEqual failed: \(av) == \(bv). \(message)")
+    }
+}
+
 // MARK: - Selection 测试 helper（P2-L-2 引入）
 
 /// 创建 NSPasteboard mock —— 用 withUniqueName 拿到独立 pasteboard，**不**碰 .general

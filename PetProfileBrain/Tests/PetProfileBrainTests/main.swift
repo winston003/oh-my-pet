@@ -21,6 +21,9 @@ registerBrainTests(tests)
 // P2-L-1: TextProvider 协议层
 registerStubTextProviderTests(tests)
 registerTextProviderRegistryTests(tests)
+// P2-L-3: Selection prompt 编排 + pet 注入 + 错误文案
+registerSelectionPromptBuilderTests(tests)
+registerProviderErrorUserMessageTests(tests)
 
 let code = tests.run()
 exit(code)

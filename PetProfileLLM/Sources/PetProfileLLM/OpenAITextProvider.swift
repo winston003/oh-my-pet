@@ -86,25 +86,34 @@ public struct OpenAITextProvider: TextProvider, @unchecked Sendable {
             throw ProviderError.networkError(reason: "keychain load failed: \(error)")
         }
 
-        // 2. stub 阶段：调任何请求都抛 notImplemented。
+        // 2. 跑 PromptBuilder 编排 system + user（P2-L-3：pet 人设注入）
+        //    真 OpenAI HTTP 接入时（P2-N），把 prompt.system + prompt.user 序列化进
+        //    /v1/chat/completions body 的 messages 数组（system + user role）。
+        //    当前 stub 阶段：把 prompt 拼到 input 字段，便于 verifier / debug 看到 pet 人设真在用。
+        let prompt = PromptBuilder.buildSelectionPrompt(request: request, pet: request.petProfile)
+
+        // 3. stub 阶段：调任何请求都抛 notImplemented。
         //    先把"会返回的 text"打到 stderr 便于调试（**不** print key / petID / model），
         //    text 字段仍生成一份"echo + prefix"（同形 StubTextProvider），便于
         //    P2-L-2 UI 看到 marker 后能给出"Switch to Stub"的友好提示。
         let appName = request.appContext?.appName ?? "unknown app"
         let wouldBeText = "[OpenAI STUB — not wired yet] [\(request.action.rawValue) from \(appName)]: \(request.selectedText)"
 
-        // 3. 截断 80 字符的 selectedText print（**不** print key / 完整 selectedText > 80 字符）
+        // 4. 截断 80 字符的 selectedText print（**不** print key / 完整 selectedText > 80 字符 /
+        //    system prompt 全文 / user prompt 全文 — system prompt 可能含人设 PII）
         let preview = String(request.selectedText.prefix(80))
         // keyPrefix 仅显示前 7 字符（"sk-xxxx..."），便于确认 key 加载到了
         let keyPrefix = String(key.prefix(7))
+        let petTag = request.petProfile.map { " pet=\($0.name)/\($0.humorStyle)" } ?? ""
         FileHandle.standardError.write(Data(
-            "[OpenAITextProvider] id=\(id) action=\(request.action.rawValue) textPreview=\"\(preview)\" keyPrefix=\"\(keyPrefix)\" wouldBeText=\"\(wouldBeText.prefix(120))\"\n".utf8
+            "[OpenAITextProvider] id=\(id) action=\(request.action.rawValue)\(petTag) textPreview=\"\(preview)\" keyPrefix=\"\(keyPrefix)\" wouldBeText=\"\(wouldBeText.prefix(120))\"\n".utf8
         ))
 
-        // 4. 抛 notImplemented —— UI 收到后显示 "This provider is not yet wired. Switch to Stub in the dropdown."
+        // 5. 抛 notImplemented —— UI 收到后用 ProviderError.userMessage 显示
+        //    "This provider is not yet wired. Switch to Stub in the dropdown."
         throw ProviderError.notImplemented(
             providerID: id,
-            message: "OpenAITextProvider.complete — real HTTP call not wired in P2-L-1; would return: \(wouldBeText.prefix(120))"
+            message: "OpenAITextProvider.complete — real HTTP call not wired in P2-L-1; would use prompt.system=\(prompt.system.prefix(60))... prompt.user=\(prompt.user.prefix(60))...; would return: \(wouldBeText.prefix(120))"
         )
     }
 }

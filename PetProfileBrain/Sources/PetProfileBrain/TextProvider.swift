@@ -32,6 +32,71 @@
 //
 
 import Foundation
+import PetProfile
+
+// MARK: - PetProfileSummary
+
+/// Pet 人设的"prompt-friendly" 摘要 — TextCompletionRequest.petProfile 用这个，
+/// **不**直接拖 LoadedPetProfile / PetProfileV1 进网络协议。
+///
+/// 设计理由（P2-L-3 决策）：
+///   - TextCompletionRequest 是跨 layer 的协议数据契约（SelectionCoordinator → provider）。
+///     LoadedPetProfile 携带 URL（visualAssetURLs 等），不适合序列化 / 跨进程 / 测试。
+///   - PetProfileV1 是 Kit 层 schema，字段多；prompt 编排只需要 4 段信息。
+///   - PetProfileSummary = (name, species, humorStyle, storyTone) — profile-driven，无 hardcode。
+///   - PetProfileLLM（OpenAITextProvider）通过这个 DTO 拿人设，**不** import PetProfileRuntime
+///     （保持 spec §4.2 "Core 层不 import UI" 反向依赖红线）。
+///
+/// 字段映射（**不** hardcode 任何 pet 字段）：
+///   - name = manifest.name
+///   - species = manifest.persona.backstoryTags?.first ?? manifest.persona.loreShort
+///   - humorStyle = manifest.humor.humorStyle.rawValue（"self-deprecating" / "gentle" / "sarcastic" / ...）
+///   - storyTone = manifest.persona.relationshipWithUser ?? "neutral"（spec P7 story 通道）
+public struct PetProfileSummary: Sendable, Codable, Equatable, Hashable {
+    public let name: String
+    public let species: String
+    public let humorStyle: String
+    public let storyTone: String
+
+    public init(
+        name: String,
+        species: String,
+        humorStyle: String,
+        storyTone: String
+    ) {
+        self.name = name
+        self.species = species
+        self.humorStyle = humorStyle
+        self.storyTone = storyTone
+    }
+
+    /// 从 v1 manifest 派生 summary。集中所有"pet 字段 → prompt 字段"的映射逻辑，
+    /// 调用方（SelectionCoordinator / 测试）不重复实现。
+    public static func from(manifest: PetProfileV1) -> PetProfileSummary {
+        let species: String
+        if let first = manifest.persona.backstoryTags?.first, !first.isEmpty {
+            species = first
+        } else if !manifest.persona.loreShort.isEmpty {
+            species = manifest.persona.loreShort
+        } else {
+            species = "companion"
+        }
+
+        let tone: String
+        if let rel = manifest.persona.relationshipWithUser, !rel.isEmpty {
+            tone = rel
+        } else {
+            tone = "neutral"
+        }
+
+        return PetProfileSummary(
+            name: manifest.name,
+            species: species,
+            humorStyle: manifest.humor.humorStyle.rawValue,
+            storyTone: tone
+        )
+    }
+}
 
 // MARK: - TextProvider protocol
 
@@ -77,13 +142,17 @@ public enum SelectionActionKind: String, Sendable, Codable, CaseIterable, Equata
 /// - action: 5 个 action 之一
 /// - selectedText: 用户选中的文本（**不**做 trim；调用方负责）
 /// - appContext: frontmost app 上下文（无 Accessibility 权限时可能为 nil）
-/// - petID: 可选；用于 prompt 注入 pet 人设（humor/story）。P2-L-3 会扩展
+/// - petID: 可选；用于 provider 内部 cross-ref（与 petProfile 一致；**不**参与 prompt）
+///   P2-L-3 之后仍保留，便于 provider 内部 logging / 路由。
+/// - petProfile: 可选；pet 人设摘要 — PromptBuilder 用来在 system prompt 注入
+///   humor / story 通道。**不**传时（首次启动还没选 pet）走通用 "helpful assistant" 系统提示。
 /// - model: 可选 model override；nil 时 provider 用自己 default
 public struct TextCompletionRequest: Sendable, Codable, Equatable {
     public let action: SelectionActionKind
     public let selectedText: String
     public let appContext: AppContextSnapshot?
     public let petID: String?
+    public let petProfile: PetProfileSummary?
     public let model: String?
 
     public init(
@@ -91,12 +160,14 @@ public struct TextCompletionRequest: Sendable, Codable, Equatable {
         selectedText: String,
         appContext: AppContextSnapshot? = nil,
         petID: String? = nil,
+        petProfile: PetProfileSummary? = nil,
         model: String? = nil
     ) {
         self.action = action
         self.selectedText = selectedText
         self.appContext = appContext
         self.petID = petID
+        self.petProfile = petProfile
         self.model = model
     }
 }
@@ -162,13 +233,20 @@ public struct AppContextSnapshot: Sendable, Codable, Equatable, Hashable {
 // MARK: - ProviderError
 
 /// TextProvider 调用层错误。UI 层根据 case 显示对应文案（spec §3.1 P4 诚实感知）。
+///
+/// P2-L-3 扩：加 `.rateLimited` case + `.userMessage` 静态方法。
+///   - `.rateLimited`：provider 显式 429 — UI 用友好文案（不是 debug 文案）
+///   - `.userMessage(for:)` 把所有 case 翻译成**直接可显示**给用户的文本，
+///     避免 UI 重复定义文案（spec P4 诚实感知）
 public enum ProviderError: Error, CustomStringConvertible, Equatable {
     /// 找不到 provider（id 没注册）
     case providerNotFound(id: String)
     /// provider 需要 API key 但 keychain 找不到
     case keyMissing(providerID: String)
-    /// provider 显式拒绝（rate limit / safety filter / content filter）
+    /// provider 显式拒绝（safety filter / content filter）
     case contentRefused(reason: String)
+    /// provider 显式 429 — rate limited
+    case rateLimited(reason: String)
     /// provider 网络 / transport 失败
     case networkError(reason: String)
     /// provider 还在 stub 阶段，没接真实现
@@ -184,12 +262,42 @@ public enum ProviderError: Error, CustomStringConvertible, Equatable {
             return "ProviderError: provider '\(id)' requires API key but keychain has none"
         case .contentRefused(let r):
             return "ProviderError: content refused — \(r)"
+        case .rateLimited(let r):
+            return "ProviderError: rate limited — \(r)"
         case .networkError(let r):
             return "ProviderError: network error — \(r)"
         case .notImplemented(let id, let m):
             return "ProviderError: provider '\(id)' not implemented — \(m)"
         case .unknown(let r):
             return "ProviderError: unknown — \(r)"
+        }
+    }
+
+    /// 翻译成**直接可显示**给用户的友好文案（spec §3.1 P4 诚实感知）。
+    ///
+    /// 契约：
+    ///   - 返回的字符串**不**含 "ProviderError:" 前缀（**不**是 debug 文案）
+    ///   - 含 emoji 时**不**夹 raw reason（reason 可能含 PII / URL token；spec P3 隐私）
+    ///   - keyMissing / notImplemented 等有明确用户动作的，给出动作指引
+    ///
+    /// 注：UI 端 `SelectionCoordinator` 仍可继续用自己的文案（兼容旧路径）；
+    /// 这个方法是 spec 标准的"中心文案"，用于 P2-N cache UI / P2-M Accessibility 等。
+    public var userMessage: String {
+        switch self {
+        case .keyMissing:
+            return "🔑 Provider requires an API key. Configure it in Settings."
+        case .rateLimited:
+            return "Provider is rate-limited. Please try again in a few seconds."
+        case .contentRefused:
+            return "Provider refused this content (likely safety filter)."
+        case .notImplemented:
+            return "This provider is not yet wired. Switch to Stub in the dropdown."
+        case .providerNotFound(let id):
+            return "Provider '\(id)' is not registered."
+        case .networkError:
+            return "Provider error: network"
+        case .unknown:
+            return "Provider error: unknown"
         }
     }
 }

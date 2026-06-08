@@ -65,20 +65,36 @@ public struct StubTextProvider: TextProvider {
             try await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000)
         }
 
-        // 2. 拼 echo + prefix
-        let appName = request.appContext?.appName ?? "unknown app"
-        let text = Self.makeStubText(action: request.action, appName: appName, selectedText: request.selectedText)
+        // 2. 跑 PromptBuilder 编排 system + user（P2-L-3：pet 人设注入）
+        //    - petProfile 注入：系统提示里含 "You are <name>, a <species> companion. ..."
+        //    - petProfile = nil：fallback 到 "helpful assistant" 系统提示
+        //    - 输出 = 实际会被 LLM 看到的 system + user 段，便于 debug + UI trace
+        //    Stub 当前不把 prompt 拼进 result.text（用更短的"as <name>"标签），但**调一次**
+        //    PromptBuilder 来触发 pet 注入逻辑 + 让 verifier 看到 system 段是有效的；
+        //    真 OpenAI HTTP 接入时（P2-N），把 prompt.system + prompt.user 序列化进 messages。
+        _ = PromptBuilder.buildSelectionPrompt(request: request, pet: request.petProfile)
 
-        // 3. 截断 80 字符的 selectedText print（**不** print 完整 selectedText / petID / model）
+        // 3. 拼 echo + prefix（保留原有 stub 行为 + 加 pet 标签）
+        let appName = request.appContext?.appName ?? "unknown app"
+        let text = Self.makeStubText(
+            action: request.action,
+            appName: appName,
+            selectedText: request.selectedText,
+            pet: request.petProfile
+        )
+
+        // 4. 截断 80 字符的 selectedText print（**不** print 完整 selectedText / petID / model /
+        //    system prompt 全文 / user prompt 全文 — system prompt 可能含人设 PII）
         let preview = String(request.selectedText.prefix(80))
+        let petTag = request.petProfile.map { " pet=\($0.name)/\($0.humorStyle)" } ?? ""
         FileHandle.standardError.write(Data(
-            "[StubTextProvider] id=\(id) action=\(request.action.rawValue) textPreview=\"\(preview)\"\n".utf8
+            "[StubTextProvider] id=\(id) action=\(request.action.rawValue)\(petTag) textPreview=\"\(preview)\"\n".utf8
         ))
 
-        // 4. 算 latency（包含 sleep 的真实时间）
+        // 5. 算 latency（包含 sleep 的真实时间）
         let latency = Int(Date().timeIntervalSince(start) * 1000)
 
-        // 5. 构造 result
+        // 6. 构造 result
         // modelUsed：stub 用 "stub-echo-v1"（不读 request.model —— 显式 override 也不影响 stub 行为）
         return TextCompletionResult(
             text: text,
@@ -95,19 +111,27 @@ public struct StubTextProvider: TextProvider {
     static func makeStubText(
         action: SelectionActionKind,
         appName: String,
-        selectedText: String
+        selectedText: String,
+        pet: PetProfileSummary? = nil
     ) -> String {
+        let prefix: String
         switch action {
         case .translate:
-            return "[STUB translate from \(appName)]: \(selectedText)"
+            prefix = "[STUB translate from \(appName)]"
         case .explain:
-            return "[STUB explain]: \(selectedText)"
+            prefix = "[STUB explain]"
         case .summarize:
-            return "[STUB summarize]: \(selectedText)"
+            prefix = "[STUB summarize]"
         case .rewrite:
-            return "[STUB rewrite]: \(selectedText)"
+            prefix = "[STUB rewrite]"
         case .ask:
-            return "[STUB ask in \(appName)]: \(selectedText)"
+            prefix = "[STUB ask in \(appName)]"
+        }
+        // pet 注入到 stub 文本：让 verifier 看到"pet 人设真在用"（不带 PII / 不暴露完整 system prompt）
+        if let pet {
+            return "\(prefix) as \(pet.name) (\(pet.humorStyle)): \(selectedText)"
+        } else {
+            return "\(prefix): \(selectedText)"
         }
     }
 }

@@ -55,6 +55,25 @@ public final class PetStore {
     /// 当前内存里 cache 的列表（懒加载 — loadAll() 后填）
     public private(set) var pets: [PetSummary] = []
 
+    /// 当前选中的 pet id（in-memory）。
+    /// P2-L-3 引入：SelectionCoordinator.send() 之前会读这个，把 pet 人设注入 TextCompletionRequest。
+    ///   - 设：Pet House 进入时（StudioView / HouseView 的 onAppear）
+    ///   - 读：SelectionCoordinator.send()（in-process 单线程；NSLock 保护并发安全）
+    ///   - 清：用户切换 pet / 删除当前 pet / app 退出（清空）
+    /// 留 UserDefaults 持久化留给 P2-N（spec §3.1 P2-N SelectionResultCache 同批做）。
+    private let _currentPetIDLock = NSLock()
+    private var _currentPetID: String?
+    public var currentPetID: String? {
+        get {
+            _currentPetIDLock.lock(); defer { _currentPetIDLock.unlock() }
+            return _currentPetID
+        }
+        set {
+            _currentPetIDLock.lock(); defer { _currentPetIDLock.unlock() }
+            _currentPetID = newValue
+        }
+    }
+
     public init(root: URL) {
         self.root = root
     }

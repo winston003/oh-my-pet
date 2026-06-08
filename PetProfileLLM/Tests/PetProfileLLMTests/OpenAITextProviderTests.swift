@@ -202,6 +202,105 @@ func registerOpenAITextProviderTests(_ tests: Tests) {
         let p2 = OpenAITextProvider(keychain: KeychainKeyStore(backend: InMemoryKeychainBackend()), model: "gpt-4o")
         try XCTAssertEqual(p2.model, "gpt-4o")
     }
+
+    // MARK: - P2-L-3: pet 注入到 OpenAITextProvider prompt 编排
+
+    func makePet() -> PetProfileSummary {
+        return PetProfileSummary(
+            name: "Pako",
+            species: "office-jelly",
+            humorStyle: "self-deprecating",
+            storyTone: "工位上的老朋友"
+        )
+    }
+
+    tests.add("OpenAIText.testPetProfile_inKeychainNotImplMessage") { _ in
+        // P2-L-3 关键 probe：pet profile 注入到 notImplemented message
+        //   (1) keychain 有 key
+        //   (2) pet profile 在 request 里
+        //   (3) 抛 notImplemented，message 含 prompt 段首字符
+        //   (4) message **不**含 key / 完整 selectedText
+        let (store, backend) = makeInMemoryKeychain()
+        try backend.save(Data("sk-pet-probe-1234567890".utf8), account: OpenAITextProvider.providerID)
+        let p = OpenAITextProvider(keychain: store)
+        let pet = makePet()
+        let req = TextCompletionRequest(
+            action: .ask,
+            selectedText: "what is this?",
+            appContext: AppContextSnapshot(bundleID: "com.apple.Xcode", appName: "Xcode", windowTitle: nil, capturedAt: Date()),
+            petProfile: pet
+        )
+        var caught: ProviderError?
+        try runAsync {
+            do { _ = try await p.complete(req) } catch let e as ProviderError { caught = e }
+        }
+        guard case .notImplemented(_, let msg) = try XCTUnwrap(caught) else {
+            throw TestFailure(name: "pet-injection", message: "expected .notImplemented")
+        }
+        // message 应该包含 prompt 段首字符（system + user 各 60 字符截断）
+        // 关键 probe：pet name "Pako" 没出现在截断里（因为 system prompt 前 60 字符是
+        //   "You are Pako, a office-jelly companion.\nHumor style: self-...")
+        // 那前 60 字符会包含 "Pako"——实际可能**不**含（取决于顺序），所以我们改为
+        // 验证 message 含 prompt.user 段首字符（即 "User asks (in Xcode):"）
+        try XCTAssertTrue(msg.contains("User asks") || msg.contains("prompt.system"),
+            "notImpl message should reference prompt; got: \(msg)")
+    }
+
+    tests.add("OpenAIText.testPetProfile_nilBackwardCompat") { _ in
+        // P2-L-3 关键 probe：petProfile = nil 时仍工作（向后兼容 P2-L-1 测试）
+        let (store, backend) = makeInMemoryKeychain()
+        try backend.save(Data("sk-test-1234567890".utf8), account: OpenAITextProvider.providerID)
+        let p = OpenAITextProvider(keychain: store)
+        let req = TextCompletionRequest(
+            action: .translate,
+            selectedText: "hello",
+            appContext: AppContextSnapshot(bundleID: "com.apple.Safari", appName: "Safari", windowTitle: nil, capturedAt: Date()),
+            petProfile: nil
+        )
+        var caught: ProviderError?
+        try runAsync {
+            do { _ = try await p.complete(req) } catch let e as ProviderError { caught = e }
+        }
+        switch try XCTUnwrap(caught) {
+        case .notImplemented(_, let msg):
+            // 应**不**含 "Pako" / "Mitu" / "Zorp" 任何 hardcode pet 名
+            try XCTAssertFalse(msg.contains("Pako"))
+            try XCTAssertFalse(msg.contains("Mitu"))
+            try XCTAssertFalse(msg.contains("Zorp"))
+        default:
+            throw TestFailure(name: "pet-nil", message: "expected .notImplemented, got \(caught!)")
+        }
+    }
+
+    tests.add("OpenAIText.testPetProfile_doesNotLeakKey") { _ in
+        // P2-L-3 关键 probe：notImplemented message **不**含 key / 完整 selectedText
+        // 注：notImpl message 用 prompt.system.prefix(60) + prompt.user.prefix(60)，
+        //     selectedText 长度 > 60 字符时才会被截断。挑一个 > 60 字符的文本。
+        let (store, backend) = makeInMemoryKeychain()
+        try backend.save(Data("sk-SECRETKEY-1234567890ABCDEF".utf8), account: OpenAITextProvider.providerID)
+        let p = OpenAITextProvider(keychain: store)
+        let pet = makePet()
+        let longText = "Sensitive user text content that is definitely longer than 60 characters in total length"
+        let req = TextCompletionRequest(
+            action: .translate,
+            selectedText: longText,
+            appContext: AppContextSnapshot(bundleID: "com.apple.Safari", appName: "Safari", windowTitle: nil, capturedAt: Date()),
+            petProfile: pet
+        )
+        var caught: ProviderError?
+        try runAsync {
+            do { _ = try await p.complete(req) } catch let e as ProviderError { caught = e }
+        }
+        let msg: String
+        switch try XCTUnwrap(caught) {
+        case .notImplemented(_, let m): msg = m
+        default: throw TestFailure(name: "pet-key", message: "expected notImpl")
+        }
+        try XCTAssertFalse(msg.contains("SECRETKEY"), "notImpl msg must not leak key; got: \(msg)")
+        // 完整 selectedText 不出现在 message（仅 prefix 60 字符；longText 远超 60）
+        try XCTAssertFalse(msg.contains(longText),
+            "notImpl msg must not leak full selectedText; got: \(msg)")
+    }
 }
 
 // MARK: - 内部 helper

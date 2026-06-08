@@ -265,6 +265,94 @@ func registerStubTextProviderTests(_ tests: Tests) {
         let s2 = StubTextProvider.makeStubText(action: .ask, appName: "Y", selectedText: "what?")
         try XCTAssertEqual(s2, "[STUB ask in Y]: what?")
     }
+
+    // MARK: - P2-L-3: pet 注入到 stub 文本 + stderr tag
+
+    func makePet(name: String = "Pako", humorStyle: String = "self-deprecating") -> PetProfileSummary {
+        return PetProfileSummary(
+            name: name,
+            species: "office-jelly",
+            humorStyle: humorStyle,
+            storyTone: "工位上的老朋友"
+        )
+    }
+
+    tests.add("Stub.testPet_includedInText") { _ in
+        // pet 注入到 stub 输出：让 verifier 看到"pet 人设真在用"
+        let p = makeProvider()
+        let pet = makePet(name: "Pako", humorStyle: "self-deprecating")
+        let req = TextCompletionRequest(
+            action: .ask,
+            selectedText: "what's up?",
+            appContext: makeAppContext(appName: "Xcode"),
+            petProfile: pet
+        )
+        var result: TextCompletionResult?
+        try runAsync { result = try await p.complete(req) }
+        let r = try XCTUnwrap(result)
+        try XCTAssertTrue(r.text.contains("Pako"),
+            "stub text should include pet name; got: \(r.text)")
+        try XCTAssertTrue(r.text.contains("self-deprecating"),
+            "stub text should include humor style; got: \(r.text)")
+        try XCTAssertTrue(r.text.contains("Xcode"),
+            "stub text should still include appName; got: \(r.text)")
+        try XCTAssertTrue(r.text.contains("what's up?"),
+            "stub text should still echo selectedText; got: \(r.text)")
+    }
+
+    tests.add("Stub.testPet_nil_backwardCompat") { _ in
+        // pet = nil 时 stub 行为**不**变（向后兼容 P2-L-1/2 测试）
+        let p = makeProvider()
+        let req = TextCompletionRequest(
+            action: .ask,
+            selectedText: "hi",
+            appContext: makeAppContext(appName: "Xcode"),
+            petProfile: nil
+        )
+        var result: TextCompletionResult?
+        try runAsync { result = try await p.complete(req) }
+        let r = try XCTUnwrap(result)
+        try XCTAssertEqual(r.text, "[STUB ask in Xcode]: hi")
+    }
+
+    tests.add("Stub.testPet_allActionsInjected") { _ in
+        // 5 个 action 都正确注入 pet 标签
+        let p = makeProvider()
+        let pet = makePet(name: "Mitu", humorStyle: "gentle")
+        try runAsync {
+            for action in SelectionActionKind.allCases {
+                let req = TextCompletionRequest(
+                    action: action,
+                    selectedText: "x",
+                    appContext: makeAppContext(appName: "A"),
+                    petProfile: pet
+                )
+                let r = try await p.complete(req)
+                try XCTAssertTrue(r.text.contains("Mitu"),
+                    "action=\(action.rawValue) should include Mitu; got: \(r.text)")
+                try XCTAssertTrue(r.text.contains("gentle"),
+                    "action=\(action.rawValue) should include gentle; got: \(r.text)")
+            }
+        }
+    }
+
+    tests.add("Stub.testPetProfile_doesNotLeakKey") { _ in
+        // pet profile 注入时，result.text 仍**不**应含 key-like 模式
+        let p = makeProvider()
+        let pet = makePet(name: "Zorp", humorStyle: "sarcastic")
+        let req = TextCompletionRequest(
+            action: .translate,
+            selectedText: "Hello",
+            appContext: makeAppContext(appName: "T"),
+            petProfile: pet
+        )
+        var result: TextCompletionResult?
+        try runAsync { result = try await p.complete(req) }
+        let r = try XCTUnwrap(result)
+        try XCTAssertFalse(r.text.contains("sk-"))
+        try XCTAssertFalse(r.text.contains("api_key"))
+        try XCTAssertFalse(r.text.contains("ProviderError"))
+    }
 }
 
 // MARK: - 内部 helper

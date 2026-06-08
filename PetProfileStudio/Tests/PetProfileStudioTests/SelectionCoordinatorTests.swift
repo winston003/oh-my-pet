@@ -354,7 +354,8 @@ func registerSelectionCoordinatorTests(_ tests: Tests) {
         })
 
         if case .failed(_, let msg) = coord.phase {
-            try XCTAssertTrue(msg.contains("not implemented"), "expected not impl in msg, got: \(msg)")
+            // P2-L-3：文案改成 "not yet wired"
+            try XCTAssertTrue(msg.contains("not yet wired"), "expected 'not yet wired' in msg, got: \(msg)")
         } else {
             throw TestFailure(name: "not-impl", message: "expected .failed, got \(coord.phase)")
         }
@@ -437,6 +438,7 @@ func registerSelectionCoordinatorTests(_ tests: Tests) {
             ), providerID: "x", model: "m")
         )
         try XCTAssertTrue(msg.contains("API key"))
+        try XCTAssertTrue(msg.contains("🔑") || msg.contains("Settings"), "expected 🔑 or Settings hint, got: \(msg)")
     }
 
     tests.add("Coordinator.testFriendlyMessageForNotImplemented") { _ in
@@ -446,7 +448,153 @@ func registerSelectionCoordinatorTests(_ tests: Tests) {
                 bundleID: nil, appName: "X", windowTitle: nil, capturedAt: Date()
             ), providerID: "x", model: "m")
         )
-        try XCTAssertTrue(msg.contains("not implemented"))
+        // P2-L-3：文案改成 "This provider is not yet wired. Switch to Stub in the dropdown."
+        try XCTAssertTrue(msg.contains("not yet wired"), "expected 'not yet wired' in msg, got: \(msg)")
+    }
+
+    tests.add("Coordinator.testFriendlyMessageForRateLimited") { _ in
+        // P2-L-3 新增 case
+        let msg = SelectionCoordinator.friendlyMessage(
+            for: .rateLimited(reason: "429"),
+            state: SelectionState(selectedText: "x", appContext: AppContextSnapshot(
+                bundleID: nil, appName: "X", windowTitle: nil, capturedAt: Date()
+            ), providerID: "x", model: "m")
+        )
+        try XCTAssertTrue(msg.lowercased().contains("rate"), "expected rate in msg, got: \(msg)")
+    }
+
+    tests.add("Coordinator.testFriendlyMessageForContentRefused") { _ in
+        // P2-L-3 新增 case
+        let msg = SelectionCoordinator.friendlyMessage(
+            for: .contentRefused(reason: "safety"),
+            state: SelectionState(selectedText: "x", appContext: AppContextSnapshot(
+                bundleID: nil, appName: "X", windowTitle: nil, capturedAt: Date()
+            ), providerID: "x", model: "m")
+        )
+        try XCTAssertTrue(msg.lowercased().contains("refus") || msg.lowercased().contains("safety"),
+            "expected refusal/safety hint, got: \(msg)")
+    }
+
+    // MARK: - P2-L-3: pet 注入到 TextCompletionRequest
+
+    /// Recording TextProvider — 记录每次收到的 request.petProfile
+    struct PetRecordingTextProvider: TextProvider {
+        let id: String
+        let displayName: String
+        let requiresAPIKey: Bool
+        let supportedActions: Set<SelectionActionKind> = Set(SelectionActionKind.allCases)
+        static var lastRequest: TextCompletionRequest?
+
+        init(id: String = "pet-rec", displayName: String = "Pet Rec", requiresAPIKey: Bool = false) {
+            self.id = id; self.displayName = displayName; self.requiresAPIKey = requiresAPIKey
+        }
+        func complete(_ request: TextCompletionRequest) async throws -> TextCompletionResult {
+            Self.lastRequest = request
+            return TextCompletionResult(text: "ok", providerID: id, modelUsed: "m", tokensUsed: nil, latencyMS: 0)
+        }
+    }
+
+    tests.add("Coordinator.testPetInjection_async") { tests in
+        // P2-L-3 关键 probe：petSummaryLoader → provider 收到 request.petProfile
+        //   - petID 来自 PetStore.shared.currentPetID（独立于 loader）
+        //   - 测试场景：loader 返回 hardcoded pet，PetStore.currentPetID 仍为 nil
+        //     所以 petID 应该是 nil（**不**强求匹配；petProfile 是 source of truth）
+        let (pb, cleanup) = makeMockPasteboard()
+        defer { cleanup() }
+        setPasteboardString(pb, "hello")
+
+        let recorder = PetRecordingTextProvider()
+        TextProviderRegistry.shared.register(recorder)
+        defer { TextProviderRegistry.shared.register(StubTextProvider()) }
+        PetRecordingTextProvider.lastRequest = nil
+
+        let pet = PetProfileSummary(
+            name: "Pako", species: "office-jelly",
+            humorStyle: "self-deprecating", storyTone: "工位上的老朋友"
+        )
+        let coord = SelectionCoordinator(
+            pasteboard: pb,
+            appSnapshot: { fixedSnapshot() },
+            petSummaryLoader: { pet }
+        )
+        coord.trigger()
+        coord.selectProvider(id: "pet-rec")
+        coord.send()
+
+        await waitUntil({
+            if case .completed = coord.phase { return true }
+            return false
+        })
+        // 关键断言：provider 收到的 request.petProfile 等于注入的 pet
+        let last = try XCTUnwrap(PetRecordingTextProvider.lastRequest)
+        let injected = try XCTUnwrap(last.petProfile)
+        try XCTAssertEqual(injected.name, "Pako")
+        try XCTAssertEqual(injected.humorStyle, "self-deprecating")
+        try XCTAssertEqual(injected.storyTone, "工位上的老朋友")
+        try XCTAssertEqual(injected.species, "office-jelly")
+        // petID 在 production 路径会从 PetStore 读（与 petProfile 同步）；
+        // 测试场景 loader 独立返回 pet，**不**写 PetStore，所以 petID = nil
+        // （行为正确：loader 只管 petProfile；petID 是 selectionCoordinator 内部 derive）
+    }
+
+    tests.add("Coordinator.testPetInjection_nilLoader") { tests in
+        // P2-L-3 关键 probe：petSummaryLoader 返回 nil → request.petProfile = nil
+        //   (首次启动还没选 pet)
+        let (pb, cleanup) = makeMockPasteboard()
+        defer { cleanup() }
+        setPasteboardString(pb, "hello")
+
+        let recorder = PetRecordingTextProvider()
+        TextProviderRegistry.shared.register(recorder)
+        defer { TextProviderRegistry.shared.register(StubTextProvider()) }
+        PetRecordingTextProvider.lastRequest = nil
+
+        let coord = SelectionCoordinator(
+            pasteboard: pb,
+            appSnapshot: { fixedSnapshot() },
+            petSummaryLoader: { nil }
+        )
+        coord.trigger()
+        coord.selectProvider(id: "pet-rec")
+        coord.send()
+
+        await waitUntil({
+            if case .completed = coord.phase { return true }
+            return false
+        })
+        let last = try XCTUnwrap(PetRecordingTextProvider.lastRequest)
+        try XCTAssertNil(last.petProfile)
+        try XCTAssertNil(last.petID)
+    }
+
+    tests.add("Coordinator.testPetInjection_differentPets_changePrompt") { _ in
+        // P2-L-3 关键 probe：切换 pet 时，PromptBuilder 输出的 system 段变化
+        //   用 PetProfileSummary.from(manifest:) 加载 Pako / Mitu，构造两个 summary，
+        //   调 PromptBuilder.buildSelectionPrompt 验证 system 段互不相等
+        //   （**不**依赖 SelectionCoordinator；直接验 PromptBuilder 行为）
+        // 注：此 test 用 sync（不需要 waitUntil），只是断言 prompt 编排结果
+        let pakos = PetProfileSummary(
+            name: "Pako", species: "office-jelly",
+            humorStyle: "self-deprecating", storyTone: "工位上的老朋友"
+        )
+        let mitus = PetProfileSummary(
+            name: "Mitu", species: "cloud",
+            humorStyle: "gentle", storyTone: "安静朋友"
+        )
+        let req = TextCompletionRequest(
+            action: .ask, selectedText: "hi",
+            appContext: AppContextSnapshot(bundleID: nil, appName: "X", windowTitle: nil, capturedAt: Date())
+        )
+        let pPako = PromptBuilder.buildSelectionPrompt(request: req, pet: pakos)
+        let pMitu = PromptBuilder.buildSelectionPrompt(request: req, pet: mitus)
+        // system 段**必须**变化（humor / story 通道真在用）
+        try XCTAssertNotEqual(pPako.system, pMitu.system)
+        try XCTAssertContains(pPako.system, "Pako")
+        try XCTAssertContains(pMitu.system, "Mitu")
+        try XCTAssertContains(pPako.system, "self-deprecating")
+        try XCTAssertContains(pMitu.system, "gentle")
+        // user 段相同（action + selectedText + appName 都没变）
+        try XCTAssertEqual(pPako.user, pMitu.user)
     }
 }
 

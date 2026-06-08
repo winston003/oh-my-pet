@@ -167,4 +167,80 @@ public enum PromptBuilder {
     private static func formatDouble(_ d: Double) -> String {
         return String(format: "%.2f", d)
     }
+
+    // MARK: - Selection Assistant prompt 编排（P2-L-3）
+
+    /// 给 Selection Assistant 编排 system + user 段。
+    ///   - pet 注入 4 段：name / species / humor style / story tone
+    ///   - pet = nil：fallback 到通用 "Be a helpful, concise assistant" 系统提示
+    ///   - "honesty boundary" 段**强制**注入到 system 段（spec §3.1 P4 诚实感知）：
+    ///     pet 绝不能假装看到用户屏幕 / 文件 / apps 之外的内容
+    ///   - 不开 5 通道输出格式（属 Brain.respond 的契约；Selection 是工具，不是 pet 在聊天）
+    ///
+    /// 行为契约（任务描述 + spec P7）：
+    ///   - ask       → "User asks (in {appName}): {selectedText}"
+    ///   - translate → "Translate this text: {selectedText}"（**不**指定目标语言；让 provider 决定）
+    ///   - explain   → "Explain this: {selectedText}"
+    ///   - summarize → "Summarize this: {selectedText}"
+    ///   - rewrite   → "Rewrite this: {selectedText}"
+    ///
+    /// 决策说明（**不**让 SelectionCoordinator 拼字符串再传）：
+    ///   - TextCompletionRequest 加 `petProfile: PetProfileSummary?` 字段，
+    ///     provider 内部自己调 `PromptBuilder.buildSelectionPrompt` 拼。
+    ///   - 理由 1：pet 人设注入 + 边界声明是 prompt 编排的一部分；
+    ///     让 provider 调编排层，UI 不需要知道 pet 字段如何映射 → 关注点分离
+    ///   - 理由 2：真 OpenAI HTTP 接入（P2-N）时，provider 还要把 system/user
+    ///     序列化进 Chat Completions API body；拼接一次、统一走 provider
+    ///     内部 helper（p2_n_provider_http_client）即可
+    ///   - 理由 3：UI 端不重复实现 pet 字段 → 字符串映射；测试覆盖一次 provider 即可
+    public static func buildSelectionPrompt(
+        request: TextCompletionRequest,
+        pet: PetProfileSummary?
+    ) -> SelectionPromptContext {
+        // 1. system 段
+        let system: String
+        let petNameForUI: String?
+        let humorStyleForUI: String?
+
+        if let pet {
+            petNameForUI = pet.name
+            humorStyleForUI = pet.humorStyle
+            system = """
+            You are \(pet.name), a \(pet.species) companion.
+            Humor style: \(pet.humorStyle)
+            Tone: \(pet.storyTone)
+            Always respond briefly (1-3 sentences unless asked for more).
+            Never break character. Never claim to access the user's screen, files, or apps beyond the provided context.
+            """
+        } else {
+            petNameForUI = nil
+            humorStyleForUI = nil
+            system = "You are a helpful, concise assistant. Always respond briefly (1-3 sentences unless asked for more). Never claim to access the user's screen, files, or apps beyond the provided context."
+        }
+
+        // 2. user 段（action-specific）
+        let appName = request.appContext?.appName ?? "unknown app"
+        let user: String
+        switch request.action {
+        case .ask:
+            user = "User asks (in \(appName)): \(request.selectedText)"
+        case .translate:
+            // 注：spec 明确不指定目标语言；让 provider 决定。
+            // （OpenAI / Claude / Stub 都接受 "Translate this text" 然后自己定 target）
+            user = "Translate this text: \(request.selectedText)"
+        case .explain:
+            user = "Explain this: \(request.selectedText)"
+        case .summarize:
+            user = "Summarize this: \(request.selectedText)"
+        case .rewrite:
+            user = "Rewrite this: \(request.selectedText)"
+        }
+
+        return SelectionPromptContext(
+            system: system,
+            user: user,
+            petName: petNameForUI,
+            humorStyle: humorStyleForUI
+        )
+    }
 }

@@ -118,6 +118,10 @@ public final class SelectionCoordinator: ObservableObject {
     /// model 推断策略（provider 已知 model 时直接用；StubTextProvider 的 modelUsed
     /// 来自 result，不是 request；OpenAI 用 defaultModel）
     private let modelForProvider: (TextProvider) -> String
+    /// pet 人设加载策略 — P2-L-3 引入：从 PetStore.currentPetID 拿 pet，构造
+    /// PetProfileSummary 注入 TextCompletionRequest.petProfile。
+    /// 可注入（测试用），避免 SelectionCoordinator 直接持有 PetStore.shared。
+    private let petSummaryLoader: () -> PetProfileSummary?
 
     /// 给 SelectionPanel / 测试用：列出当前 registry 的所有 provider
     public var allProvidersList: [TextProvider] {
@@ -146,12 +150,30 @@ public final class SelectionCoordinator: ObservableObject {
             default:
                 return provider.id
             }
-        }
+        },
+        petSummaryLoader: (() -> PetProfileSummary?)? = nil
     ) {
         self.pasteboard = pasteboard
         self.appSnapshot = appSnapshot
         self.providerRegistry = providerRegistry
         self.modelForProvider = modelForProvider
+        // 缺省 → 走 default 策略（从 PetStore 读）；不直接用 Self 避免 default arg 限制
+        self.petSummaryLoader = petSummaryLoader ?? { SelectionCoordinator.defaultPetSummaryLoader() }
+    }
+
+    /// Default pet 加载策略：从 PetStore.shared.currentPetID 拿 pet，构造 PetProfileSummary。
+    /// 失败（没选 pet / pet 找不到 / 加载失败）→ 返回 nil，让 provider 走通用 "helpful assistant"。
+    static func defaultPetSummaryLoader() -> PetProfileSummary? {
+        guard let petID = PetStore.shared.currentPetID else { return nil }
+        do {
+            let loaded = try PetStore.shared.load(id: petID)
+            return PetProfileSummary.from(manifest: loaded.manifest)
+        } catch {
+            FileHandle.standardError.write(Data(
+                "SelectionCoordinator: failed to load pet \(petID) for prompt injection: \(error)\n".utf8
+            ))
+            return nil
+        }
     }
 
     // MARK: - Public API
@@ -241,12 +263,21 @@ public final class SelectionCoordinator: ObservableObject {
         }
         self.phase = .running(state: s)
 
+        // P2-L-3：从 PetStore 加载 pet 人设摘要（humor / story 通道），注入到 request。
+        // petProfile = nil 时（首次启动没选 pet）→ provider 走通用 "helpful assistant"。
+        let petSummary = petSummaryLoader()
+        // petID 同步：从 PetStore 读（与 loader 独立；loader 只返回 PetProfileSummary）
+        //   - production: petSummaryLoader → defaultPetSummaryLoader → PetStore.shared.currentPetID
+        //   - test: petSummaryLoader 可能返回 hardcoded summary，**不**经过 PetStore
+        //     此时 petID 应该 nil（**不**猜：保持 petID 跟 petProfile 一致；summary 是 source of truth）
+        let petID: String? = (petSummary != nil) ? PetStore.shared.currentPetID : nil
         let request = TextCompletionRequest(
             action: s.action,
             selectedText: s.selectedText,
             appContext: s.appContext,
-            petID: nil,    // petID 留给 P2-L-3（humor/story 注入）
-            model: nil     // model 由 provider 自己 default
+            petID: petID,                          // 跟 petProfile 同步（production 路径才有值）
+            petProfile: petSummary,                // pet 人设 → PromptBuilder 拼 system 段
+            model: nil                             // model 由 provider 自己 default
         )
         let stateForResult = s
 
@@ -288,20 +319,27 @@ public final class SelectionCoordinator: ObservableObject {
 
     /// 把 ProviderError 翻译成 friendly 错误文本。
     /// 注：keyMissing 走 .info 而非 .failed（任务描述明确要求）。
+    /// P2-L-3：对于 5 个 spec 标准文案 case（keyMissing / rateLimited / contentRefused /
+    /// notImplemented / other），优先用 `ProviderError.userMessage`（中心文案），
+    /// 保持 P4 诚实感知一致。带 reason 的 case（contentRefused / networkError / unknown）
+    /// 仍包含 reason（debug 时有用），但前缀改成 friendly 风格。
     static func friendlyMessage(for e: ProviderError, state: SelectionState) -> String {
         switch e {
-        case .keyMissing(let id):
-            return "Provider '\(id)' requires an API key. Configure it in Settings → BYOK."
+        case .keyMissing:
+            // ProviderError.userMessage: "🔑 Provider requires an API key. Configure it in Settings."
+            return e.userMessage
+        case .rateLimited:
+            return e.userMessage
+        case .contentRefused:
+            return e.userMessage
+        case .notImplemented:
+            return e.userMessage
         case .providerNotFound(let id):
             return "Provider '\(id)' is not registered."
-        case .contentRefused(let reason):
-            return "Provider returned error: content refused — \(reason)"
-        case .networkError(let reason):
-            return "Provider returned error: network error — \(reason)"
-        case .notImplemented(_, let message):
-            return "Provider returned error: not implemented — \(message)"
-        case .unknown(let reason):
-            return "Provider returned error: unknown — \(reason)"
+        case .networkError:
+            return e.userMessage
+        case .unknown:
+            return e.userMessage
         }
     }
 
