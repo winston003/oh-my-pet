@@ -18,6 +18,9 @@ let tests = Tests(suiteName: "PetProfileBrain")
 registerPromptBuilderTests(tests)
 registerMockLLMTests(tests)
 registerBrainTests(tests)
+// P2-L-1: TextProvider 协议层
+registerStubTextProviderTests(tests)
+registerTextProviderRegistryTests(tests)
 
 let code = tests.run()
 exit(code)
