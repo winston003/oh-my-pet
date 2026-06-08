@@ -15,6 +15,9 @@ registerExportTests(tests)
 registerUploadImageProviderTests(tests)
 registerImageProviderRegistryTests(tests)
 registerStubProviderTests(tests)
+// P2-L-2: Selection trigger + panel + coordinator
+registerSelectionCoordinatorTests(tests)
+registerSelectionPanelTests(tests)
 
 let code = tests.run()
 exit(code)

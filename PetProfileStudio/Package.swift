@@ -37,7 +37,11 @@ let package = Package(
     dependencies: [
         .package(path: "../PetProfileKit"),
         .package(path: "../PetProfileRuntime"),
-        .package(path: "../PetProfileOnboarding")
+        .package(path: "../PetProfileOnboarding"),
+        // P2-L-2: SelectionPanel/Coordinator import PetProfileBrain.TextProvider
+        //         /TextProviderRegistry / AppContextSnapshot / StubTextProvider /
+        //         OpenAITextProvider（type names only, never concrete SDK calls）
+        .package(path: "../PetProfileBrain")
     ],
     targets: [
         .target(
@@ -45,7 +49,8 @@ let package = Package(
             dependencies: [
                 .product(name: "PetProfile", package: "PetProfileKit"),
                 .product(name: "PetProfileRuntime", package: "PetProfileRuntime"),
-                .product(name: "PetProfileOnboarding", package: "PetProfileOnboarding")
+                .product(name: "PetProfileOnboarding", package: "PetProfileOnboarding"),
+                .product(name: "PetProfileBrain", package: "PetProfileBrain")
             ],
             path: "Sources/PetProfileStudio"
         ),

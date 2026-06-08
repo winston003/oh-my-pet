@@ -7,6 +7,8 @@
 //
 
 import Foundation
+import AppKit
+import PetProfileRuntime
 @testable import PetProfileStudio
 
 public struct TestFailure: Error, CustomStringConvertible {
@@ -159,6 +161,34 @@ public func XCTUnwrap<T>(_ v: @autoclosure () -> T?, _ message: String = "", fil
         throw TestFailure(name: "\(file):\(line)", message: "XCTUnwrap failed. \(message)")
     }
     return x
+}
+
+// MARK: - Selection 测试 helper（P2-L-2 引入）
+
+/// 创建 NSPasteboard mock —— 用 withUniqueName 拿到独立 pasteboard，**不**碰 .general
+/// 返回 (pasteboard, cleanup)；测试结束 defer cleanup() 释放
+public func makeMockPasteboard() -> (NSPasteboard, () -> Void) {
+    let pb = NSPasteboard(name: NSPasteboard.Name("test-\(UUID().uuidString)"))
+    pb.clearContents()
+    return (pb, { pb.releaseGlobally() })
+}
+
+/// 在 pasteboard 写 string
+public func setPasteboardString(_ pb: NSPasteboard, _ s: String?) {
+    pb.clearContents()
+    if let s, !s.isEmpty {
+        pb.setString(s, forType: .string)
+    }
+}
+
+/// 固定 FrontmostAppCapture.Snapshot（注入）
+public func fixedSnapshot() -> FrontmostAppCapture.Snapshot {
+    FrontmostAppCapture.Snapshot(
+        bundleID: "com.test.app",
+        appName: "TestApp",
+        windowTitle: nil,  // MVP 不读
+        capturedAt: Date()
+    )
 }
 
 // MARK: - PetStore 临时目录 helper（P2-J 引入）
