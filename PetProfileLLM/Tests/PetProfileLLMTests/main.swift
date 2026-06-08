@@ -21,6 +21,8 @@ registerProviderRequestTests(tests)
 registerProviderResponseTests(tests)
 registerErrorRecoveryTests(tests)
 registerIntegrationTests(tests)
+// P2-L-1: TextProvider OpenAI stub
+registerOpenAITextProviderTests(tests)
 
 let code = tests.run()
 exit(code)
