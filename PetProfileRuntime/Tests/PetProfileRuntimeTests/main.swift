@@ -19,6 +19,8 @@ registerPetPanelTests(tests)
 registerSpringAnimationTests(tests)
 registerChannelDispatcherTests(tests)
 registerActionRouterTests(tests)
+// P2-L-2: frontmost app context capture
+registerFrontmostAppCaptureTests(tests)
 
 let code = tests.run()
 exit(code)
